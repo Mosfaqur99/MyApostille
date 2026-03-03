@@ -27,6 +27,7 @@
     "src"
   ],
   "name": "pdf-verification-frontend",
+  "homepage": "https://mygovapostille.com",
   "version": "0.1.0",
   "private": true,
   "dependencies": {

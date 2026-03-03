@@ -1,19 +1,20 @@
-const { Pool } = require('pg');
+const { Pool } = require("pg");
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    rejectUnauthorized: false
+    rejectUnauthorized: false, // Required for Neon
+  },
+});
+
+// Test connection on startup
+pool.connect((err, client, release) => {
+  if (err) {
+    console.error("❌ Database connection error:", err.stack);
+  } else {
+    console.log("✅ Connected to Neon PostgreSQL");
+    release();
   }
-});
-
-// Test connection
-pool.on('connect', () => {
-  console.log('✅ Database connected successfully');
-});
-
-pool.on('error', (err) => {
-  console.error('⚠️  Unexpected database error:', err.stack);
 });
 
 module.exports = pool;
