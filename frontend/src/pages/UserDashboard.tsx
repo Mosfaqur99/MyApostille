@@ -2,13 +2,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+
 import axios from '../api';
+
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 import { toast } from 'react-toastify';
 import { gsap } from 'gsap';
 import { extractFilename } from '../Utils/FileUtils';
+
 import api from '../api';
+
 
 const UserDashboard = () => {
   const { user, logout } = useAuth();
@@ -69,7 +73,9 @@ useEffect(() => {
 
   const fetchUploads = async () => {
     try {
+
       const res = await api.get('/api/files/my-uploads');;
+
       setUploads(res.data);
       setLoading(false);
     } catch (err) {
@@ -183,10 +189,12 @@ const handleSavePartialChanges = async () => {
   try {
     // Use PATCH instead of PUT for partial updates
     const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
     const response = await api.patch(
   `/api/files/edit/${editingUpload.id}`,
   formData
 );
+
     
     toast.success(response.data.message);
     fetchUploads();
@@ -223,10 +231,12 @@ const handleSaveEditChanges = async () => {
   try {
     // CRITICAL: Use absolute URL to avoid 400 errors
     const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
     await api.put(
   `/api/files/replace/${editingUpload.id}`, 
   formData
 );
+
     
     toast.success('ফাইলসমূহ সফলভাবে আপডেট করা হয়েছে!');
     fetchUploads();
@@ -333,6 +343,7 @@ const handleSaveEditChanges = async () => {
 
     setIsUploading(true);
     try {
+
       await api.post('/api/files/upload', formData, {
   onUploadProgress: (progressEvent: any) => {
     if (progressEvent.total) {
@@ -341,6 +352,7 @@ const handleSaveEditChanges = async () => {
     }
   }
 });
+
       
       toast.success(`${selectedFiles.length} image${selectedFiles.length > 1 ? 's' : ''} uploaded successfully!`);
       
@@ -424,7 +436,9 @@ const handleSaveEditChanges = async () => {
     });
 
     try {
+
       await api.put(`/api/files/replace/${editingUpload.id}`, formData);
+
       
       const fileCount = validFiles.length;
       toast.success(`${fileCount} file${fileCount > 1 ? 's' : ''} replaced successfully!`);
