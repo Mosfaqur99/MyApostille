@@ -8,6 +8,8 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const pdfLib = require("pdf-lib");
+const authRoutes = require("./routes/authRoutes");
+const fileRoutes = require("./routes/fileRoutes");
 
 dotenv.config();
 
@@ -28,6 +30,8 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use("/api/auth", authRoutes);
+app.use("/api/files", fileRoutes);
 
 // Create uploads directory
 // Windows-compatible path handling
@@ -45,8 +49,7 @@ app.use("/uploads", express.static(uploadDir));
 
 // Routes
 // Routes
-app.use("/auth", require("./routes/authRoutes"));
-app.use("/files", require("./routes/fileRoutes"));
+
 
 // Health check
 app.get("/", (req, res) => {
