@@ -75,7 +75,7 @@ app.use((err, req, res, next) => {
 });
 
 // In backend/server.js, add before app.listen()
-app.get("/api/health", (req, res) => {
+app.get("/health", (req, res) => {
   res.json({
     status: "OK",
     timestamp: new Date().toISOString(),
