@@ -591,6 +591,30 @@ router.delete('/:id', verifyToken, async (req, res) => {
   }
 });
 
+
+// Public file check - REMOVE AFTER TESTING
+router.get('/check-file/:filename', async (req, res) => {
+  const filename = req.params.filename;
+  const path = require('path');
+  const fs = require('fs');
+  
+  const checks = [
+    path.join(__dirname, '..', 'uploads', 'original', filename),
+    path.join(__dirname, '..', 'uploads', filename),
+    path.join(process.cwd(), 'uploads', 'original', filename),
+    path.join(process.cwd(), 'uploads', filename),
+    `/opt/render/project/src/backend/uploads/original/${filename}`,
+    `/opt/render/project/src/backend/uploads/${filename}`
+  ];
+  
+  const results = checks.map(p => ({
+    path: p,
+    exists: fs.existsSync(p)
+  }));
+  
+  res.json({ filename, checks: results });
+});
+
 // Serve uploaded files for download (admin only) - WITH CORS
 router.get('/uploads/:filename', verifyToken, authorizeRole('admin'), async (req, res) => {
   try {
