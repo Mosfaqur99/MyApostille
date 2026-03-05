@@ -44,12 +44,9 @@ const pool = require("./config/db");
 app.use("/uploads", express.static(uploadDir));
 
 // Routes
-app.use("/api/auth", require("./routes/authRoutes"));
-app.use("/api/files", require("./routes/fileRoutes"));
-
 // Routes
-app.use("/api/auth", require("./routes/authRoutes"));
-app.use("/api/files", require("./routes/fileRoutes"));
+app.use("/auth", require("./routes/authRoutes"));
+app.use("/files", require("./routes/fileRoutes"));
 
 // Health check
 app.get("/", (req, res) => {

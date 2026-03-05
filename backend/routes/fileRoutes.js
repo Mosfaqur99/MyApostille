@@ -8,6 +8,7 @@ const fsp = fs.promises;
 const fsRegular = require('fs');
 const { verifyToken, authorizeRole } = require('../middleware/auth');
 const pool = require('../config/db');
+const cors = require('cors');
 
 // Import the certificate generator and document processor from utils
 const { generateEApostilleCertificate } = require('../utils/certificateGenerator');
@@ -175,6 +176,16 @@ router.post('/upload', verifyToken, upload.array('files', 10), async (req, res) 
   }
 });
 
+
+// CORS middleware for this router
+router.use(cors({
+  origin: ['http://localhost:3000', 'https://mygovapostille.com'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
+}));
+
+router.options('*', cors());
 // Replace files for pending upload
 router.put('/replace/:id', verifyToken, upload.array('files', 10), async (req, res) => {
   try {
@@ -364,7 +375,12 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 
 
 // Modified verify endpoint with re-upload and additional signatures
-router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('reuploadedFiles', 10), async (req, res) => {
+router.post('/verify/:id',
+  cors({
+    origin: ['http://localhost:3000', 'https://mygovapostille.com'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'x-auth-token']
+  }), verifyToken, authorizeRole('admin'), upload.array('reuploadedFiles', 10), async (req, res) => {
   const uploadId = req.params.id;
   
   try {
@@ -575,32 +591,35 @@ router.delete('/:id', verifyToken, async (req, res) => {
   }
 });
 
-// Serve uploaded files for download (admin only)
-// Serve uploaded files for download (admin only)
-// Serve uploaded files for download (admin only)
-// Serve uploaded files for download (admin only)
-router.get('/uploads/:filename', verifyToken, authorizeRole('admin'), async (req, res) => {
-  try {
-    const filename = req.params.filename;
-    
-    // Correct path: from routes folder, go up one level to backend, then to uploads
-    const filePath = path.join(__dirname, '..', 'uploads', filename);
-    
-    console.log('Looking for file at:', filePath);
-    console.log('File exists:', fsRegular.existsSync(filePath));
-    
-    if (!fsRegular.existsSync(filePath)) {
-      return res.status(404).json({ message: 'File not found', path: filePath });
+// Serve uploaded files for download (admin only) - WITH CORS
+router.get('/uploads/:filename', 
+  cors({
+    origin: ['http://localhost:3000', 'https://mygovapostille.com'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'x-auth-token']
+  }),
+  verifyToken, 
+  authorizeRole('admin'), 
+  async (req, res) => {
+    try {
+      const filename = req.params.filename;
+      const filePath = path.join(__dirname, '..', 'uploads', filename);
+      
+      console.log('Looking for file at:', filePath);
+      
+      if (!fsRegular.existsSync(filePath)) {
+        return res.status(404).json({ message: 'File not found' });
+      }
+      
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.sendFile(path.resolve(filePath));
+      
+    } catch (error) {
+      console.error('File serve error:', error);
+      res.status(500).json({ message: 'Error serving file' });
     }
-    
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.sendFile(path.resolve(filePath));
-    
-  } catch (error) {
-    console.error('File serve error:', error);
-    res.status(500).json({ message: 'Error serving file' });
   }
-});
+);
 
 module.exports = router;
