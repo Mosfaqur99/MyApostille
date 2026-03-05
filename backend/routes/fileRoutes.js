@@ -596,32 +596,19 @@ router.get('/uploads/:filename', verifyToken, authorizeRole('admin'), async (req
   try {
     const filename = req.params.filename;
     
-    // Check multiple possible locations
-    const possiblePaths = [
-      path.join(__dirname, '..', 'uploads', filename),
-      path.join(__dirname, '..', 'uploads', 'original', filename),
-      path.join(__dirname, '..', '..', 'uploads', filename),
-      path.join(process.cwd(), 'uploads', filename),
-      path.join(process.cwd(), 'uploads', 'original', filename)
-    ];
+    // Try original subdirectory first (where multer saves files)
+    const filePath = path.join(__dirname, '..', 'uploads', 'original', filename);
     
-    let filePath = null;
-    for (const testPath of possiblePaths) {
-      console.log('Checking:', testPath);
-      if (fsRegular.existsSync(testPath)) {
-        filePath = testPath;
-        break;
+    console.log('Looking for file at:', filePath);
+    
+    if (!fsRegular.existsSync(filePath)) {
+      // Fallback to uploads root
+      const fallbackPath = path.join(__dirname, '..', 'uploads', filename);
+      if (fsRegular.existsSync(fallbackPath)) {
+        return res.sendFile(path.resolve(fallbackPath));
       }
+      return res.status(404).json({ message: 'File not found', path: filePath });
     }
-    
-    if (!filePath) {
-      return res.status(404).json({ 
-        message: 'File not found',
-        searched: possiblePaths 
-      });
-    }
-    
-    console.log('Found file at:', filePath);
     
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'application/octet-stream');
@@ -633,31 +620,6 @@ router.get('/uploads/:filename', verifyToken, authorizeRole('admin'), async (req
   }
 });
 
-router.get('/debug/files', verifyToken, authorizeRole('admin'), async (req, res) => {
-  const uploadsDir = path.join(__dirname, '..', 'uploads');
-  
-  const scanDir = (dir) => {
-    const results = [];
-    if (fsRegular.existsSync(dir)) {
-      const items = fsRegular.readdirSync(dir);
-      for (const item of items) {
-        const fullPath = path.join(dir, item);
-        const stat = fsRegular.statSync(fullPath);
-        if (stat.isDirectory()) {
-          results.push({ type: 'dir', name: item, contents: scanDir(fullPath) });
-        } else {
-          results.push({ type: 'file', name: item, size: stat.size });
-        }
-      }
-    }
-    return results;
-  };
-  
-  res.json({
-    uploadsDir,
-    exists: fsRegular.existsSync(uploadsDir),
-    contents: scanDir(uploadsDir)
-  });
-});
+
 
 module.exports = router;
