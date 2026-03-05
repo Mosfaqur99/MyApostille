@@ -1,4 +1,5 @@
 import React from 'react';
+import foorterlogo from '../assets/footerlogo.png';
 
 const Footer = () => {
   return (
@@ -8,24 +9,15 @@ const Footer = () => {
           <p className="text-gray-600 text-sm">কপিরাইট © ২০২৬ সর্বস্ব সংরক্ষিত</p>
           <p className="text-gray-600 text-sm">গণপ্রজাতন্ত্রী বাংলাদেশ সরকার</p>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-4">
           <p className="text-gray-600 text-sm">পরিকল্পনা ও বাস্তবায়নে</p>
-          <div className="flex space-x-2">
+          <div className="flex space-x-6">
             <img 
-              src="https://www.bangladesh.gov.bd/sites/default/files/2022-12/logo.png" 
+              src={foorterlogo}
               alt="Logo" 
-              className="h-6"
+              className="h-12"
             />
-            <img 
-              src="https://www.bangladesh.gov.bd/sites/default/files/2022-12/logo.png" 
-              alt="Logo" 
-              className="h-6"
-            />
-            <img 
-              src="https://www.bangladesh.gov.bd/sites/default/files/2022-12/logo.png" 
-              alt="Logo" 
-              className="h-6"
-            />
+           
           </div>
         </div>
       </div>
