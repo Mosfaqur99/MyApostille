@@ -16,18 +16,16 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 
-app.use(
-  cors({
-    origin: [
-      "https://mygovapostille.com", // Your GoDaddy frontend
-      "http://localhost:5173", // Local dev
-      "http://localhost:3000", // Local dev fallback
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", 'x-auth-token'],
-  })
-);
+app.use(cors({
+  origin: [
+    'https://mygovapostille.com',
+    'http://localhost:3000',
+    'http://localhost:5173'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

@@ -74,7 +74,7 @@ useEffect(() => {
   const fetchUploads = async () => {
     try {
 
-      const res = await api.get('/api/files/my-uploads');;
+      const res = await api.get('/files/my-uploads');;
 
       setUploads(res.data);
       setLoading(false);
@@ -191,7 +191,7 @@ const handleSavePartialChanges = async () => {
     const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
     const response = await api.patch(
-  `/api/files/edit/${editingUpload.id}`,
+  `/files/edit/${editingUpload.id}`,
   formData
 );
 
@@ -233,7 +233,7 @@ const handleSaveEditChanges = async () => {
     const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
     await api.put(
-  `/api/files/replace/${editingUpload.id}`, 
+  `/files/replace/${editingUpload.id}`, 
   formData
 );
 
@@ -344,7 +344,7 @@ const handleSaveEditChanges = async () => {
     setIsUploading(true);
     try {
 
-      await api.post('/api/files/upload', formData, {
+      await api.post('/files/upload', formData, {
   onUploadProgress: (progressEvent: any) => {
     if (progressEvent.total) {
       const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -437,7 +437,7 @@ const handleSaveEditChanges = async () => {
 
     try {
 
-      await api.put(`/api/files/replace/${editingUpload.id}`, formData);
+      await api.put(`/files/replace/${editingUpload.id}`, formData);
 
       
       const fileCount = validFiles.length;

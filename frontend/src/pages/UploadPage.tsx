@@ -31,7 +31,7 @@ const UserDashboard = () => {
 
   const fetchUploads = async () => {
     try {
-      const res = await api.get('/api/files/my-uploads');
+      const res = await api.get('/files/my-uploads');
       setUploads(res.data);
       setLoading(false);
     } catch (err) {
@@ -91,7 +91,7 @@ const UserDashboard = () => {
     });
 
     try {
-      await api.put(`/api/files/replace/${uploadId}`, formData, {
+      await api.put(`/files/replace/${uploadId}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       
@@ -113,7 +113,7 @@ const UserDashboard = () => {
     }
 
     try {
-      await api.delete(`/api/files/${uploadId}`);
+      await api.delete(`/files/${uploadId}`);
       toast.success('আবেদন সফলভাবে মুছে ফেলা হয়েছে!');
       fetchUploads();
     } catch (error: any) {

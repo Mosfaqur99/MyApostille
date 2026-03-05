@@ -41,8 +41,8 @@ const AdminDashboard = () => {
         const token = localStorage.getItem('token');
         
         const [pendingRes, completedRes] = await Promise.all([
-          api.get('/api/files/pending'),
-  api.get('/api/files/completed')
+          api.get('/files/pending'),
+          api.get('/files/completed')
         ]);
         
         setPendingUploads(pendingRes.data);
@@ -67,7 +67,7 @@ const AdminDashboard = () => {
   const fetchAdditionalSigners = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await api.get('/api/files/additional-signers');
+      const res = await api.get('/files/additional-signers');
       setAdditionalSigners(res.data);
     } catch (err) {
       console.error('Failed to fetch signers', err);
@@ -163,7 +163,7 @@ const AdminDashboard = () => {
       formData.append('additionalSigners', JSON.stringify(selectedSigners));
       
       const response = await api.post(
-  `/api/files/verify/${selectedUpload.id}`,
+  `/files/verify/${selectedUpload.id}`,
   formData
 );
       
@@ -171,8 +171,8 @@ const AdminDashboard = () => {
       
       // Refresh data
       const [pendingRes, completedRes] = await Promise.all([
-        api.get('/api/files/pending'),
-api.get('/api/files/completed')
+        api.get('/files/pending'),
+api.get('/files/completed')
       ]);
       
       setPendingUploads(pendingRes.data);
@@ -195,11 +195,11 @@ api.get('/api/files/completed')
 
     try {
       const token = localStorage.getItem('token');
-      await api.delete(`/api/files/${uploadId}`);
+      await api.delete(`/files/${uploadId}`);
       
       toast.success('আবেদন সফলভাবে মুছে ফেলা হয়েছে!');
       
-     const pendingRes = await api.get('/api/files/pending');
+     const pendingRes = await api.get('/files/pending');
       setPendingUploads(pendingRes.data);
     } catch (error: any) {
       console.error('Delete failed', error);
@@ -221,7 +221,7 @@ const downloadUserDocument = async (filePath: string, filename: string) => {
     console.log('Downloading file:', fileNameOnly); // Debug log
     
     // Use the download endpoint with just the filename
-    const response = await api.get(`/api/files/uploads/${fileNameOnly}`, {
+    const response = await api.get(`/files/uploads/${fileNameOnly}`, {
   responseType: 'blob'
 });
     
