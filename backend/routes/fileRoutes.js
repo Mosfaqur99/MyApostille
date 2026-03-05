@@ -592,34 +592,45 @@ router.delete('/:id', verifyToken, async (req, res) => {
 });
 
 // Serve uploaded files for download (admin only) - WITH CORS
-router.get('/uploads/:filename', 
-  cors({
-    origin: ['http://localhost:3000', 'https://mygovapostille.com'],
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'x-auth-token']
-  }),
-  verifyToken, 
-  authorizeRole('admin'), 
-  async (req, res) => {
-    try {
-      const filename = req.params.filename;
-      const filePath = path.join(__dirname, '..', 'uploads', filename);
-      
-      console.log('Looking for file at:', filePath);
-      
-      if (!fsRegular.existsSync(filePath)) {
-        return res.status(404).json({ message: 'File not found' });
+router.get('/uploads/:filename', verifyToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    
+    // Check multiple possible locations
+    const possiblePaths = [
+      path.join(__dirname, '..', 'uploads', filename),
+      path.join(__dirname, '..', 'uploads', 'original', filename),
+      path.join(__dirname, '..', '..', 'uploads', filename),
+      path.join(process.cwd(), 'uploads', filename),
+      path.join(process.cwd(), 'uploads', 'original', filename)
+    ];
+    
+    let filePath = null;
+    for (const testPath of possiblePaths) {
+      console.log('Checking:', testPath);
+      if (fsRegular.existsSync(testPath)) {
+        filePath = testPath;
+        break;
       }
-      
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.setHeader('Content-Type', 'application/octet-stream');
-      res.sendFile(path.resolve(filePath));
-      
-    } catch (error) {
-      console.error('File serve error:', error);
-      res.status(500).json({ message: 'Error serving file' });
     }
+    
+    if (!filePath) {
+      return res.status(404).json({ 
+        message: 'File not found',
+        searched: possiblePaths 
+      });
+    }
+    
+    console.log('Found file at:', filePath);
+    
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.sendFile(path.resolve(filePath));
+    
+  } catch (error) {
+    console.error('File serve error:', error);
+    res.status(500).json({ message: 'Error serving file' });
   }
-);
+});
 
 module.exports = router;
