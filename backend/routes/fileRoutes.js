@@ -633,4 +633,31 @@ router.get('/uploads/:filename', verifyToken, authorizeRole('admin'), async (req
   }
 });
 
+router.get('/debug/files', verifyToken, authorizeRole('admin'), async (req, res) => {
+  const uploadsDir = path.join(__dirname, '..', 'uploads');
+  
+  const scanDir = (dir) => {
+    const results = [];
+    if (fsRegular.existsSync(dir)) {
+      const items = fsRegular.readdirSync(dir);
+      for (const item of items) {
+        const fullPath = path.join(dir, item);
+        const stat = fsRegular.statSync(fullPath);
+        if (stat.isDirectory()) {
+          results.push({ type: 'dir', name: item, contents: scanDir(fullPath) });
+        } else {
+          results.push({ type: 'file', name: item, size: stat.size });
+        }
+      }
+    }
+    return results;
+  };
+  
+  res.json({
+    uploadsDir,
+    exists: fsRegular.existsSync(uploadsDir),
+    contents: scanDir(uploadsDir)
+  });
+});
+
 module.exports = router;
