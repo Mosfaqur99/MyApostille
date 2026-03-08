@@ -402,14 +402,17 @@ async function generateEApostilleCertificate(certificateData) {
 
     const pdfBytes = await doc.save();
 
-    const baseDir = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
-    const certDir = path.join(baseDir, 'certificates');
+    const baseDir = process.env.UPLOAD_DIR || '/tmp/uploads';
+const certDir = path.join(baseDir, 'certificates');
 
-    await fs.mkdir(certDir, { recursive: true });
+    if (!fs.existsSync(certDir)) {
+  fs.mkdirSync(certDir, { recursive: true });
+}
 
     const certFilename = `cert_${certNo}.pdf`;
     const certPath = path.join(certDir, certFilename);
 
+    
     await fs.writeFile(certPath, pdfBytes);
 
     console.log('✅ Certificate saved:', certPath);

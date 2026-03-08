@@ -212,15 +212,18 @@ api.get('/files/completed')
 
 // In AdminDashboard.tsx, REPLACE the entire downloadUserDocument function:
 
+// REPLACE downloadUserDocument in AdminDashboard.tsx:
+
 const downloadUserDocument = async (filePath: string, filename: string) => {
   try {
     const token = localStorage.getItem('token');
     
-    // Extract just the filename from any path format (Windows or Linux)
+    // Extract just the filename from any path format
     const fileNameOnly = filePath.replace(/^.*[\\\/]/, '');
     
-    // CRITICAL: Use the SAME api instance, don't create new URL
-    // The api instance already has baseURL set to https://.../api
+    console.log('Downloading file:', fileNameOnly);
+    
+    // Use api instance which has correct baseURL
     const response = await api.get(
       `/files/uploads/${encodeURIComponent(fileNameOnly)}`,
       {
@@ -247,7 +250,6 @@ const downloadUserDocument = async (filePath: string, filename: string) => {
     toast.error(error.response?.data?.message || 'Download failed');
   }
 };
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
