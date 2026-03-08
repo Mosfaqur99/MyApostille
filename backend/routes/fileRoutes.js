@@ -378,10 +378,13 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     );
     
     // Cleanup original files (don't await - let it run in background)
-    console.log('Cleaning up original files...');
+    console.log('🧹 Cleaning up original files...');
     if (upload.file_paths && Array.isArray(upload.file_paths)) {
       for (const file of upload.file_paths) {
-        if (file.path) deleteFileAsync(file.path).catch(console.error);
+        if (file.path) {
+          // Use the correct function name: deleteFileAsync
+          deleteFileAsync(file.path).catch(console.error);
+        }
       }
     } else if (upload.file_path) {
       deleteFileAsync(upload.file_path).catch(console.error);
@@ -395,11 +398,11 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     });
     
   } catch (err) {
-    console.error('Verification error:', err);
+    console.error('❌ Verification error:', err);
     // Cleanup on error
     if (req.files) {
       for (const file of req.files) {
-        deleteFileAsync(file.path).catch(console.error);
+        deleteFileAsync(file.path).catch(console.error);  // Fixed: deleteFileAsync not deleteFile
       }
     }
     res.status(500).json({ message: 'Certificate generation failed', error: err.message });

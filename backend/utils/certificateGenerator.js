@@ -2,12 +2,12 @@
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const QRCode = require('qrcode');
 const fontkit = require('@pdf-lib/fontkit');
-const fs = require('fs').promises;
+const fs = require('fs');  // KEEP this as regular fs
 const path = require('path');
 
 function safeText(text) {
   if (text === undefined || text === null) return 'N/A';
-  return text.toString().trim() || 'N/A';
+  return String(text).trim() || 'N/A';
 }
 
 function formatDate(dateString) {
@@ -15,29 +15,34 @@ function formatDate(dateString) {
     const date = new Date(dateString);
     if (isNaN(date.getTime())) return 'N/A';
     const day = String(date.getDate()).padStart(2, '0');
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${day}-${monthNames[date.getMonth()]}-${date.getFullYear()}`;
-  } catch (e) { return 'N/A'; }
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${day}-${months[date.getMonth()]}-${date.getFullYear()}`;
+  } catch (e) { 
+    return 'N/A'; 
+  }
 }
 
 async function generateQRCode(text) {
   try {
     return await QRCode.toBuffer(text, { width: 100, margin: 1, errorCorrectionLevel: 'M' });
-  } catch (err) { return null; }
-}
-
-async function loadImage(doc, imagePath) {
-  try {
-    const imageBytes = await fs.readFile(imagePath);
-    const ext = path.extname(imagePath).toLowerCase();
-    return ext === '.png' ? await doc.embedPng(imageBytes) : await doc.embedJpg(imageBytes);
   } catch (err) { 
-    console.error(`Failed to load image: ${imagePath}`, err);
     return null; 
   }
 }
 
-/* ---------- SAFE ASSETS PATH DETECTION (from code 1) ---------- */
+async function loadImage(doc, imagePath) {
+  try {
+    const imageBytes = await fs.promises.readFile(imagePath);
+    const ext = path.extname(imagePath).toLowerCase();
+    if (ext === '.png') return await doc.embedPng(imageBytes);
+    if (ext === '.jpg' || ext === '.jpeg') return await doc.embedJpg(imageBytes);
+    return null;
+  } catch (err) { 
+    console.error('Failed to load image:', imagePath, err.message);
+    return null; 
+  }
+}
+
 function getAssetsPath() {
   const possiblePaths = [
     path.join(__dirname, '..', 'assets'),
@@ -48,7 +53,7 @@ function getAssetsPath() {
   ];
   
   for (const testPath of possiblePaths) {
-    if (require('fs').existsSync(testPath)) {
+    if (fs.existsSync(testPath)) {
       console.log('✅ Found assets at:', testPath);
       return testPath;
     }
@@ -59,19 +64,42 @@ function getAssetsPath() {
 }
 
 async function generateEApostilleCertificate(certificateData) {
-  console.log('🚀 STARTING CERTIFICATE GENERATION');
-  console.log('Data received:', JSON.stringify(certificateData, null, 2));
   try {
+    console.log('🚀 STARTING CERTIFICATE GENERATION');
+    console.log('Data received:', JSON.stringify(certificateData, null, 2));
+    
     const doc = await PDFDocument.create();
-    console.log('✅ PDF document created');
     doc.registerFontkit(fontkit);
     
-     console.log('✅ Fontkit registered');
-    
     const page = doc.addPage([595.28, 841.89]);
-    console.log('✅ Page added');
     const { width, height } = page.getSize();
     
+    const assetsPath = getAssetsPath();
+    const fontsPath = path.join(assetsPath, 'fonts');
+    
+    console.log('📁 Assets path:', assetsPath);
+    console.log('📁 Fonts path:', fontsPath);
+    console.log('📁 Fonts exists:', fs.existsSync(fontsPath));
+
+    // Load fonts
+    let timesRegular, timesBold, timesItalic;
+    try {
+      const regularBytes = await fs.promises.readFile(path.join(fontsPath, 'TimesRoman-Regular.ttf'));
+      const boldBytes = await fs.promises.readFile(path.join(fontsPath, 'TimesRoman-Bold.ttf'));
+      const italicBytes = await fs.promises.readFile(path.join(fontsPath, 'TimesRoman-Italic.otf'));
+      
+      timesRegular = await doc.embedFont(regularBytes);
+      timesBold = await doc.embedFont(boldBytes);
+      timesItalic = await doc.embedFont(italicBytes);
+      console.log('✅ Times Roman fonts loaded');
+    } catch (fontErr) {
+      console.warn('⚠️ Custom fonts failed, using defaults:', fontErr.message);
+      timesRegular = await doc.embedFont(StandardFonts.Helvetica);
+      timesBold = await doc.embedFont(StandardFonts.HelveticaBold);
+      timesItalic = await doc.embedFont(StandardFonts.HelveticaOblique);
+    }
+
+    // Colors
     const textColor = rgb(46/255, 46/255, 46/255);
     const linkColor = rgb(0, 0, 238/255);
     
@@ -80,45 +108,7 @@ async function generateEApostilleCertificate(certificateData) {
     const leftMargin = margin + 20;
     const labelX = leftMargin;
 
-    const assetsPath = getAssetsPath();
-    console.log('📁 Assets path:', assetsPath);
-    const fontsPath = path.join(assetsPath, 'fonts');
-    console.log('📁 Fonts path:', fontsPath);
-    console.log('📁 Fonts exists:', require('fs').existsSync(fontsPath));
-
-     try {
-      const fs = require('fs');
-      if (fs.existsSync(assetsPath)) {
-        console.log('📂 Assets contents:', fs.readdirSync(assetsPath));
-        if (fs.existsSync(fontsPath)) {
-          console.log('📂 Fonts contents:', fs.readdirSync(fontsPath));
-        }
-      }
-    } catch (e) {
-      console.error('Cannot list assets:', e.message);
-    }
-
-    let timesRegular, timesBold, timesItalic;
-
-    try {
-      const regularBytes = await fs.readFile(path.join(fontsPath, 'TimesRoman-Regular.ttf'));
-      const boldBytes = await fs.readFile(path.join(fontsPath, 'TimesRoman-Bold.ttf'));
-      const italicBytes = await fs.readFile(path.join(fontsPath, 'TimesRoman-Italic.otf'));
-      
-      timesRegular = await doc.embedFont(regularBytes);
-      timesBold = await doc.embedFont(boldBytes);
-      timesItalic = await doc.embedFont(italicBytes);
-      
-      console.log('✅ Times Roman fonts loaded');
-    } catch (fontErr) {
-      console.error('❌ Font load failed:', fontErr.message);
-      timesRegular = await doc.embedFont(StandardFonts.Helvetica);
-      timesBold = await doc.embedFont(StandardFonts.HelveticaBold);
-      timesItalic = await doc.embedFont(StandardFonts.HelveticaOblique);
-    }
-
-    /* ---------- WATERMARK ---------- */
-
+    // Watermark
     const watermarkImg = await loadImage(doc, path.join(assetsPath, 'watermark.jpg'));
     if (watermarkImg) {
       const maxWidth = width * 0.35;
@@ -126,8 +116,8 @@ async function generateEApostilleCertificate(certificateData) {
       const scaleX = maxWidth / watermarkImg.width;
       const scaleY = maxHeight / watermarkImg.height;
       const scale = Math.min(scaleX, scaleY);
-      
       const dims = watermarkImg.scale(scale);
+      
       page.drawImage(watermarkImg, {
         x: centerX - dims.width / 2,
         y: height / 2 - dims.height / 2 - 20,
@@ -137,8 +127,7 @@ async function generateEApostilleCertificate(certificateData) {
       });
     }
 
-    /* ---------- BORDER ---------- */
-
+    // Border
     page.drawRectangle({
       x: margin, 
       y: margin,
@@ -223,8 +212,7 @@ async function generateEApostilleCertificate(certificateData) {
       });
     };
 
-    /* ---------- HEADER ---------- */
-
+    // Header
     drawCentered('e-APOSTILLE', timesBold, 21, y, textColor); 
     y -= 18;
     drawCentered('(Convention de La Haye du 5 octobre 1961)', timesBold, 12, y, textColor); 
@@ -273,7 +261,6 @@ async function generateEApostilleCertificate(certificateData) {
     const authName = safeText(certificateData.authorityName || 'MD. ASIF KHAN PRANTO').toUpperCase();
     drawRow('7', 'by ', authName, y, { valueBold: true, valueUnderline: true, labelBold: false });
     y -= 12;
-
     page.drawText('Assistant Secretary, Ministry of Foreign Affairs', { 
         x: labelX + timesBold.widthOfTextAtSize('7. by ', 10) + 5,
         y: y, 
@@ -281,19 +268,9 @@ async function generateEApostilleCertificate(certificateData) {
         font: timesRegular, 
         color: textColor
     });
-
     y -= 30;
 
-    /* ---------- CERTIFICATE NUMBER ---------- */
-
-    const generateCertNumber = () => {
-      let num = '';
-      for (let i = 0; i < 12; i++) {
-        num += Math.floor(Math.random() * 10);
-      }
-      return num;
-    };
-
+    // Certificate number
     const certNo = certificateData.certificateNumber || generateCertNumber();
     const displayNo = certNo.startsWith('N°') ? certNo : `N° ${certNo}`;
 
@@ -304,9 +281,7 @@ async function generateEApostilleCertificate(certificateData) {
       font: timesBold,
       color: textColor
     });
-
     const num8Width = timesBold.widthOfTextAtSize('8.', 12);
-
     page.drawText(displayNo, { 
         x: labelX + num8Width + 8, 
         y: y, 
@@ -314,11 +289,9 @@ async function generateEApostilleCertificate(certificateData) {
         font: timesRegular, 
         color: textColor
     });
-
-    /* ---------- SEAL & SIGNATURE ---------- */
-
     y -= 50;
 
+    // Seal & Signature
     const sealSigY = y;
 
     page.drawText('9. Seal/stamp:', { 
@@ -328,7 +301,6 @@ async function generateEApostilleCertificate(certificateData) {
       font: timesBold,
       color: textColor
     });
-
     page.drawText('10. Signature:', { 
       x: centerX + 90,
       y: sealSigY, 
@@ -337,12 +309,11 @@ async function generateEApostilleCertificate(certificateData) {
       color: textColor
     });
 
+    // Load seal and signature
     const sealImg = await loadImage(doc, path.join(assetsPath, 'seal.jpg'));
-
+    
     const authorityName = safeText(certificateData.authorityName || 'MD. ASIF KHAN PRANTO').toUpperCase();
-
     let signatureFileName;
-
     switch(authorityName) {
       case 'MD. ASIF KHAN PRANTO':
         signatureFileName = 'signature_asif.png';
@@ -370,58 +341,141 @@ async function generateEApostilleCertificate(certificateData) {
     }
 
     if (sigImg) {
+      const sigWidth = 100;
+      const sigHeight = 50;
       page.drawImage(sigImg, { 
         x: centerX + 90,
-        y: sealSigY - 60, 
-        width: 100, 
-        height: 50 
+        y: sealSigY - sigHeight - 10, 
+        width: sigWidth, 
+        height: sigHeight 
+      });
+    } else {
+      console.warn(`Signature image not found: ${signatureFileName}`);
+      page.drawText('[SIGNATURE]', { 
+        x: centerX + 90,
+        y: sealSigY - 30, 
+        size: 10, 
+        font: timesRegular,
+        color: textColor
       });
     }
 
-    /* ---------- QR & DIGITAL SIGN ---------- */
+    // QR Code and digital signature
+    const qrSize = 85;
+    const qrX = width - margin - qrSize - 25;
+    const bottomSectionY = margin + 80;
 
     const qrBuffer = await generateQRCode(`https://mofa.servicedirectory.apostille.mygov.bd/verify/${certNo}`);
-    const qrImage = await doc.embedPng(qrBuffer);
+    if (qrBuffer) {
+      const qrImage = await doc.embedPng(qrBuffer);
+      page.drawImage(qrImage, { 
+        x: qrX + 10, 
+        y: bottomSectionY - 60, 
+        width: qrSize, 
+        height: qrSize 
+      });
+    }
 
-    page.drawImage(qrImage, { 
-      x: width - 120,
-      y: margin + 20,
-      width: 85,
-      height: 85
-    });
+    // Digital signature info
+    const infoX = labelX + 60;
+    const infoY = bottomSectionY + 60;
+    const lineSpacing = 9;
 
     const now = new Date();
-    const dateStr = now.toISOString().slice(0,10).replace(/-/g,'.');
-    const timeStr = now.toISOString().slice(11,19);
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '.');
+    const timeStr = now.toISOString().slice(11, 19);
 
-    page.drawText(`Digitally signed by ${authName}`, { x: labelX+60, y: margin+140, size:10, font: timesBold });
-    page.drawText(`Date: ${dateStr}`, { x: labelX+60, y: margin+130, size:10, font: timesBold });
-    page.drawText(`${timeStr} +06:00`, { x: labelX+60, y: margin+120, size:10, font: timesBold });
+    page.drawText(`Digitally signed by ${authName}`, { 
+      x: infoX, 
+      y: infoY, 
+      size: 10, 
+      font: timesBold,
+      color: textColor
+    });
+    page.drawText(`Date: ${dateStr}`, { 
+      x: infoX, 
+      y: infoY - lineSpacing, 
+      size: 10, 
+      font: timesBold,
+      color: textColor
+    });
+    page.drawText(`${timeStr} +06:00`, { 
+      x: infoX, 
+      y: infoY - (lineSpacing * 2), 
+      size: 10, 
+      font: timesBold,
+      color: textColor
+    });
+    page.drawText('Reason: Document', { 
+      x: infoX, 
+      y: infoY - (lineSpacing * 3), 
+      size: 10, 
+      font: timesBold,
+      color: textColor
+    });
+    page.drawText('Signing', { 
+      x: infoX, 
+      y: infoY - (lineSpacing * 4), 
+      size: 10, 
+      font: timesBold,
+      color: textColor
+    });
+    page.drawText('Location: Ministry of', { 
+      x: infoX, 
+      y: infoY - (lineSpacing * 5), 
+      size: 10, 
+      font: timesBold,
+      color: textColor
+    });
+    page.drawText('foreign Affairs, Dhaka, BD', { 
+      x: infoX, 
+      y: infoY - (lineSpacing * 6), 
+      size: 10, 
+      font: timesBold,
+      color: textColor
+    });
 
-    /* ---------- SAVE CERTIFICATE (from code 1) ---------- */
+    // Footer
+    const footerY = margin + 20;
+    const bullet = '*';
 
-    const pdfBytes = await doc.save();
+    page.drawText(`${bullet} To see the Apostille documents, please scan the QR code`, {
+      x: infoX - 60, 
+      y: footerY + 12, 
+      size: 7.5, 
+      font: timesRegular, 
+      color: textColor
+    });
 
+    page.drawText(`${bullet} For verification of the e-Apostille, please visit: https://mofa.servicedirectory.apostille.mygov.bd`, {
+      x: infoX - 60, 
+      y: footerY, 
+      size: 7.5, 
+      font: timesRegular, 
+      color: linkColor
+    });
+
+    // Save certificate
     const baseDir = process.env.UPLOAD_DIR || '/tmp/uploads';
-const certDir = path.join(baseDir, 'certificates');
-
+    const certDir = path.join(baseDir, 'certificates');
+    
     if (!fs.existsSync(certDir)) {
-  fs.mkdirSync(certDir, { recursive: true });
-}
+      fs.mkdirSync(certDir, { recursive: true });
+    }
 
     const certFilename = `cert_${certNo}.pdf`;
-    const certPath = path.join(certDir, certFilename);
+    const certLocalPath = path.join(certDir, certFilename);
 
-    
-    await fs.writeFile(certPath, pdfBytes);
+    const pdfBytes = await doc.save();
+    await fs.promises.writeFile(certLocalPath, pdfBytes);
 
-    console.log('✅ Certificate saved:', certPath);
+    console.log('✅ Certificate saved:', certLocalPath);
 
     return { 
       pdfBytes, 
       certificateNumber: certNo,
       filePath: `/uploads/certificates/${certFilename}`,
-      localPath: certPath
+      localPath: certLocalPath
     };
 
   } catch (err) {
@@ -432,7 +486,6 @@ const certDir = path.join(baseDir, 'certificates');
 
 module.exports = {
   generateEApostilleCertificate,
-  sanitizeForPDF: safeText,
-  formatDate,
-  generateQRCode
+  safeText,
+  formatDate
 };
