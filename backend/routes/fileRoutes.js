@@ -158,56 +158,16 @@ router.post('/upload', verifyToken, upload.array('files', 10), async (req, res) 
 });
 
 // Get user's uploads
-// REPLACE the download route in fileRoutes.js:
-
-router.get('/uploads/:filename', verifyToken, async (req, res) => {
+router.get('/my-uploads', verifyToken, async (req, res) => {
   try {
-    const filename = req.params.filename;
-    const uploadDir = process.env.UPLOAD_DIR || '/tmp/uploads';
-    const filePath = path.join(uploadDir, 'original', filename);
-    
-    console.log('📥 Download/view requested by user:', req.user.id);
-    console.log('📁 File:', filename);
-    
-    if (!fs.existsSync(filePath)) {
-      const altPath = path.join(uploadDir, filename);
-      if (fs.existsSync(altPath)) {
-        return res.sendFile(path.resolve(altPath));
-      }
-      return res.status(404).json({ message: 'File not found' });
-    }
-    
-    // Check ownership for non-admin users
-    if (req.user.role !== 'admin') {
-      const uploads = await pool.query(
-        `SELECT * FROM uploads 
-         WHERE (file_path LIKE $1 OR file_paths::text LIKE $1)
-         AND user_id = $2`,
-        [`%${filename}%`, req.user.id]
-      );
-      
-      if (uploads.rows.length === 0) {
-        console.log('❌ Access denied for user:', req.user.id);
-        return res.status(403).json({ message: 'Access denied' });
-      }
-    }
-    
-    // Set proper content type for images
-    const ext = path.extname(filename).toLowerCase();
-    const contentType = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.pdf': 'application/pdf'
-    }[ext] || 'application/octet-stream';
-    
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-    res.sendFile(path.resolve(filePath));
-    
-  } catch (error) {
-    console.error('❌ File serve error:', error);
-    res.status(500).json({ message: 'Error serving file' });
+    const uploads = await pool.query(
+      `SELECT * FROM uploads WHERE user_id = $1 ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+    res.json(uploads.rows);
+  } catch (err) {
+    console.error('Error fetching uploads:', err.message);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
