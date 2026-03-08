@@ -52,8 +52,8 @@ async function generateEApostilleCertificate(certificateData) {
     const margin = 25;
     const leftMargin = margin + 20;
     const labelX = leftMargin;
-    const assetsPath = path.join(__dirname, '../assets');
-    const fontsPath = path.join(assetsPath, 'fonts');
+    const assetsPath = process.env.ASSETS_PATH || path.join(__dirname, '..', 'assets');
+const fontsPath = path.join(assetsPath, 'fonts');
 
     let timesRegular, timesBold, timesItalic;
 

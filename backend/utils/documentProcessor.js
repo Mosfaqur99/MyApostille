@@ -23,7 +23,7 @@ function formatSignatureDate(dateString) {
 async function processDocumentWithSignatures(filePath, signers, certNumber) {
   const ext = path.extname(filePath).toLowerCase();
   const filename = path.basename(filePath, ext);
-  const outputDir = path.join(__dirname, '../uploads/verified');
+  const outputDir = process.env.VERIFIED_DIR || path.join(__dirname, '..', 'uploads', 'verified');
   const outputPath = path.join(outputDir, `${filename}_verified${ext}`);
   
   await fs.mkdir(outputDir, { recursive: true });
@@ -49,9 +49,9 @@ async function processPDF(filePath, signers, outputPath) {
   const { width, height } = lastPage.getSize();
   
   // Define paths FIRST
-  const assetsPath = path.join(__dirname, '../assets');
-  const fontsPath = path.join(assetsPath, 'fonts');
-  const sigPath = path.join(assetsPath, 'signatures', 'documents');
+  const assetsPath = process.env.ASSETS_PATH || path.join(__dirname, '..', 'assets');
+const fontsPath = path.join(assetsPath, 'fonts');
+const sigPath = path.join(assetsPath, 'signatures', 'documents');
   
   // Load Times Roman fonts
   let timesRegular, timesBold;

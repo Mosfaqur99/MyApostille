@@ -42,13 +42,25 @@ app.use("/api/files", fileRoutes);
 
 // Create uploads directory
 // Windows-compatible path handling
-const uploadDir = path
-  .join(__dirname, process.env.UPLOAD_DIR || "uploads")
-  .replace(/\\/g, "/");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const uploadDir = process.env.UPLOAD_DIR 
+  ? path.join('/opt/render/project/src', process.env.UPLOAD_DIR)  // Render path
+  : path.join(__dirname, 'uploads'); 
 
+const dirs = [
+  uploadDir,
+  path.join(uploadDir, 'original'),
+  path.join(uploadDir, 'certificates'),
+  path.join(uploadDir, 'verified'),
+  path.join('/opt/render/project/src/backend', 'assets', 'fonts'),
+  path.join('/opt/render/project/src/backend', 'assets', 'signatures', 'documents')
+];
+
+dirs.forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(`✅ Created directory: ${dir}`);
+  }
+});
 // Database connection
 const pool = require("./config/db");
 
