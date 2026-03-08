@@ -208,34 +208,42 @@ api.get('/files/completed')
   };
 
   // Add this function in AdminDashboard component (after handleDeleteUpload)
+// REPLACE downloadUserDocument function:
+
 const downloadUserDocument = async (filePath: string, filename: string) => {
   try {
     const token = localStorage.getItem('token');
-    const baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
     
-    // Extract just the filename from the full Windows path
-    // Handle both Windows backslashes and forward slashes
-    const pathSeparator = filePath.includes('\\') ? '\\' : '/';
-    const fileNameOnly = filePath.split(pathSeparator).pop() || 'document';
+    // Extract filename from full Windows/Linux path
+    const fileNameOnly = filePath.replace(/^.*[\\\/]/, '');
     
-    console.log('Downloading file:', fileNameOnly); // Debug log
+    // Use environment API URL, never localhost
+    const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com';
     
-    // Use the download endpoint with just the filename
-    const response = await api.get(`/files/uploads/${fileNameOnly}`, {
-  responseType: 'blob'
-});
+    console.log('Downloading:', `${API_BASE_URL}/api/files/uploads/${fileNameOnly}`);
     
-    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const response = await api.get(
+      `${API_BASE_URL}/files/uploads/${encodeURIComponent(fileNameOnly)}`,
+      {
+        headers: { 'x-auth-token': token },
+        responseType: 'blob'
+      }
+    );
+    
+    // Create download
+    const blob = new Blob([response.data]);
+    const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', filename || fileNameOnly);
     document.body.appendChild(link);
     link.click();
-    link.remove();
+    document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+    
   } catch (error) {
-    console.error('Download failed', error);
-    toast.error('ডাউনলোড ব্যর্থ হয়েছে');
+    console.error('Download failed:', error);
+    toast.error('Download failed - check console');
   }
 };
 

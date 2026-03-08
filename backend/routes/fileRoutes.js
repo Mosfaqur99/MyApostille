@@ -90,22 +90,26 @@ async function embedImageToPDF(pdfDoc, imagePath) {
 // ========== MULTER CONFIGURATION ==========
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Use the global upload directory from server.js
-    const uploadDir = process.env.UPLOAD_DIR 
-      ? path.join(process.env.UPLOAD_DIR, 'original')
-      : path.join(__dirname, '../uploads/original');
+    // Use environment variable or fallback
+    const baseDir = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads');
+    const dest = path.join(baseDir, 'original');
     
     // Ensure directory exists
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+    try {
+      if (!fs.existsSync(dest)) {
+        fs.mkdirSync(dest, { recursive: true });
+      }
+      cb(null, dest);
+    } catch (err) {
+      console.error('Multer destination error:', err);
+      cb(err);
     }
-    
-    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const safeFilename = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, uniqueSuffix + '-' + safeFilename);
+    // Sanitize filename
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    cb(null, uniqueSuffix + '-' + safeName);
   }
 });
 
@@ -120,9 +124,17 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({ 
   storage: storage,
-  fileFilter: fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF, PNG, JPEG allowed'), false);
+    }
+  }
 });
+
 
 // ========== ROUTES ==========
 

@@ -37,6 +37,27 @@ async function loadImage(doc, imagePath) {
   }
 }
 
+/* ---------- SAFE ASSETS PATH DETECTION (from code 1) ---------- */
+function getAssetsPath() {
+  const possiblePaths = [
+    path.join(__dirname, '..', 'assets'),
+    path.join(__dirname, '..', '..', 'assets'),
+    path.join('/opt/render/project/src', 'backend', 'assets'),
+    path.join(process.cwd(), 'backend', 'assets'),
+    path.join(process.cwd(), 'assets')
+  ];
+  
+  for (const testPath of possiblePaths) {
+    if (require('fs').existsSync(testPath)) {
+      console.log('✅ Found assets at:', testPath);
+      return testPath;
+    }
+  }
+  
+  console.warn('⚠️ Assets not found, using default:', possiblePaths[0]);
+  return possiblePaths[0];
+}
+
 async function generateEApostilleCertificate(certificateData) {
   try {
     const doc = await PDFDocument.create();
@@ -46,42 +67,16 @@ async function generateEApostilleCertificate(certificateData) {
     const { width, height } = page.getSize();
     
     const textColor = rgb(46/255, 46/255, 46/255);
-    const linkColor = rgb(0, 0, 238/255); // Blue for links
+    const linkColor = rgb(0, 0, 238/255);
     
     const centerX = width / 2;
     const margin = 25;
     const leftMargin = margin + 20;
     const labelX = leftMargin;
-    const getAssetsPath = () => {
-  // On Render, use the project src directory
-  if (process.env.RENDER === 'true') {
-    return path.join('/opt/render/project/src', 'backend', 'assets');
-  }
-  // Local development
-  return path.join(__dirname, '..', 'assets');
-};
+
     const assetsPath = getAssetsPath();
-const fontsPath = path.join(assetsPath, 'fonts');
+    const fontsPath = path.join(assetsPath, 'fonts');
 
-    const saveCertificate = async (pdfBytes, certNumber) => {
-  // Use /tmp for Render, local uploads for dev
-  const baseDir = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
-  const certDir = path.join(baseDir, 'certificates');
-  
-  // Ensure directory exists
-  await fs.mkdir(certDir, { recursive: true });
-  
-  const certFilename = `cert_${certNumber}.pdf`;
-  const certPath = path.join(certDir, certFilename);
-  
-  await fs.writeFile(certPath, pdfBytes);
-
-
-    return {
-    localPath: certPath,
-    dbPath: `/uploads/certificates/${certFilename}`
-  };
-};
     let timesRegular, timesBold, timesItalic;
 
     try {
@@ -101,7 +96,8 @@ const fontsPath = path.join(assetsPath, 'fonts');
       timesItalic = await doc.embedFont(StandardFonts.HelveticaOblique);
     }
 
-    // 1. WATERMARK
+    /* ---------- WATERMARK ---------- */
+
     const watermarkImg = await loadImage(doc, path.join(assetsPath, 'watermark.jpg'));
     if (watermarkImg) {
       const maxWidth = width * 0.35;
@@ -120,7 +116,8 @@ const fontsPath = path.join(assetsPath, 'fonts');
       });
     }
 
-    // 2. BORDER
+    /* ---------- BORDER ---------- */
+
     page.drawRectangle({
       x: margin, 
       y: margin,
@@ -205,7 +202,8 @@ const fontsPath = path.join(assetsPath, 'fonts');
       });
     };
 
-    // 3. HEADER SECTION
+    /* ---------- HEADER ---------- */
+
     drawCentered('e-APOSTILLE', timesBold, 21, y, textColor); 
     y -= 18;
     drawCentered('(Convention de La Haye du 5 octobre 1961)', timesBold, 12, y, textColor); 
@@ -254,6 +252,7 @@ const fontsPath = path.join(assetsPath, 'fonts');
     const authName = safeText(certificateData.authorityName || 'MD. ASIF KHAN PRANTO').toUpperCase();
     drawRow('7', 'by ', authName, y, { valueBold: true, valueUnderline: true, labelBold: false });
     y -= 12;
+
     page.drawText('Assistant Secretary, Ministry of Foreign Affairs', { 
         x: labelX + timesBold.widthOfTextAtSize('7. by ', 10) + 5,
         y: y, 
@@ -261,9 +260,11 @@ const fontsPath = path.join(assetsPath, 'fonts');
         font: timesRegular, 
         color: textColor
     });
+
     y -= 30;
 
-    // Generate random 12-digit certificate number
+    /* ---------- CERTIFICATE NUMBER ---------- */
+
     const generateCertNumber = () => {
       let num = '';
       for (let i = 0; i < 12; i++) {
@@ -282,7 +283,9 @@ const fontsPath = path.join(assetsPath, 'fonts');
       font: timesBold,
       color: textColor
     });
+
     const num8Width = timesBold.widthOfTextAtSize('8.', 12);
+
     page.drawText(displayNo, { 
         x: labelX + num8Width + 8, 
         y: y, 
@@ -290,187 +293,112 @@ const fontsPath = path.join(assetsPath, 'fonts');
         font: timesRegular, 
         color: textColor
     });
-    y -= 50; // More space before seal/signature
 
-   // 7. SEAL & SIGNATURE SECTION
-const sealSigY = y;
+    /* ---------- SEAL & SIGNATURE ---------- */
 
-// Labels at the same Y position
-page.drawText('9. Seal/stamp:', { 
-  x: labelX, 
-  y: sealSigY, 
-  size: 12, 
-  font: timesBold,
-  color: textColor
-});
-page.drawText('10. Signature:', { 
-  x: centerX + 90,
-  y: sealSigY, 
-  size: 12, 
-  font: timesBold,
-  color: textColor
-});
+    y -= 50;
 
-// ⭐ LOAD SEAL (common for all)
-const sealImg = await loadImage(doc, path.join(assetsPath, 'seal.jpg'));
+    const sealSigY = y;
 
-// ⭐ LOAD SIGNATURE BASED ON AUTHORITY NAME
-const authorityName = safeText(certificateData.authorityName || 'MD. ASIF KHAN PRANTO').toUpperCase();
-let signatureFileName;
+    page.drawText('9. Seal/stamp:', { 
+      x: labelX, 
+      y: sealSigY, 
+      size: 12, 
+      font: timesBold,
+      color: textColor
+    });
 
-// Map authority name to signature file
-switch(authorityName) {
-  case 'MD. ASIF KHAN PRANTO':
-    signatureFileName = 'signature_asif.png'; // or whatever your file is named
-    break;
-  case 'TUSHAR':
-    signatureFileName = 'signature_tushar.png';
-    break;
-  case 'ANIK':
-    signatureFileName = 'signature_anik.png';
-    break;
-  default:
-    signatureFileName = 'signature.png'; // default fallback
-}
+    page.drawText('10. Signature:', { 
+      x: centerX + 90,
+      y: sealSigY, 
+      size: 12, 
+      font: timesBold,
+      color: textColor
+    });
 
-const sigImg = await loadImage(doc, path.join(assetsPath, signatureFileName));
+    const sealImg = await loadImage(doc, path.join(assetsPath, 'seal.jpg'));
 
-// Seal on the left
-if (sealImg) {
-  const sealSize = 110;
-  page.drawImage(sealImg, { 
-    x: labelX, 
-    y: sealSigY - sealSize - 10, 
-    width: sealSize, 
-    height: sealSize 
-  });
-}
+    const authorityName = safeText(certificateData.authorityName || 'MD. ASIF KHAN PRANTO').toUpperCase();
 
-// Signature on the right
-if (sigImg) {
-  const sigWidth = 100;
-  const sigHeight = 50;
-  page.drawImage(sigImg, { 
-    x: centerX + 90,
-    y: sealSigY - sigHeight - 10, 
-    width: sigWidth, 
-    height: sigHeight 
-  });
-} else {
-  // Fallback if signature image not found - draw text
-  console.warn(`Signature image not found: ${signatureFileName}`);
-  page.drawText('[SIGNATURE]', { 
-    x: centerX + 90,
-    y: sealSigY - 30, 
-    size: 10, 
-    font: timesRegular,
-    color: textColor
-  });
-}
+    let signatureFileName;
 
+    switch(authorityName) {
+      case 'MD. ASIF KHAN PRANTO':
+        signatureFileName = 'signature_asif.png';
+        break;
+      case 'TUSHAR':
+        signatureFileName = 'signature_tushar.png';
+        break;
+      case 'ANIK':
+        signatureFileName = 'signature_anik.png';
+        break;
+      default:
+        signatureFileName = 'signature.png';
+    }
 
-   // Remove the sealBottom/sigBottom calculations - not needed
+    const sigImg = await loadImage(doc, path.join(assetsPath, signatureFileName));
 
-// 8. VERIFICATION BLOCK - Position at bottom
-const qrSize = 85; // Slightly smaller QR
-const qrX = width - margin - qrSize - 25; // More margin from right
-const bottomSectionY = margin + 80; // Base Y position for bottom section
+    if (sealImg) {
+      const sealSize = 110;
+      page.drawImage(sealImg, { 
+        x: labelX, 
+        y: sealSigY - sealSize - 10, 
+        width: sealSize, 
+        height: sealSize 
+      });
+    }
 
-// QR Code at bottom right - aligned with digital info
-const qrBuffer = await generateQRCode(`https://mofa.servicedirectory.apostille.mygov.bd/verify/${certNo}`);
-if (qrBuffer) {
-  const qrImage = await doc.embedPng(qrBuffer);
-  page.drawImage(qrImage, { 
-    x: qrX+10, 
-    y: bottomSectionY-60, 
-    width: qrSize, 
-    height: qrSize 
-  });
-}
+    if (sigImg) {
+      page.drawImage(sigImg, { 
+        x: centerX + 90,
+        y: sealSigY - 60, 
+        width: 100, 
+        height: 50 
+      });
+    }
 
-// Digital signature info at bottom left - compact with tight spacing
-const infoX = labelX+60; // Start a bit to the right of labelX for better alignment
-const infoY = bottomSectionY + 60; // Top align with QR code
-const lineSpacing = 9; // ⭐ Tighter line spacing (was 12)
+    /* ---------- QR & DIGITAL SIGN ---------- */
 
-// Format date as shown in image: YYYY.MM.DD
-const now = new Date();
-const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '.');
-const timeStr = now.toISOString().slice(11, 19);
+    const qrBuffer = await generateQRCode(`https://mofa.servicedirectory.apostille.mygov.bd/verify/${certNo}`);
+    const qrImage = await doc.embedPng(qrBuffer);
 
-page.drawText(`Digitally signed by ${authName}`, { 
-  x: infoX, 
-  y: infoY, 
-  size: 10, 
-  font: timesBold,
-  color: textColor
-});
-page.drawText(`Date: ${dateStr}`, { 
-  x: infoX, 
-  y: infoY - lineSpacing, 
-  size: 10, 
-  font: timesBold,
-  color: textColor
-});
-page.drawText(`${timeStr} +06:00`, { 
-  x: infoX, 
-  y: infoY - (lineSpacing * 2), 
-  size: 10, 
-  font: timesBold,
-  color: textColor
-});
-page.drawText('Reason: Document', { 
-  x: infoX, 
-  y: infoY - (lineSpacing * 3), 
-  size: 10, 
-  font: timesBold,
-  color: textColor
-});
-page.drawText('Signing', { 
-  x: infoX, 
-  y: infoY - (lineSpacing * 4), 
-  size: 10, 
-  font: timesBold,
-  color: textColor
-});
-page.drawText('Location: Ministry of', { 
-  x: infoX, 
-  y: infoY - (lineSpacing * 5), 
-  size: 10, 
-  font: timesBold,
-  color: textColor
-});
-page.drawText('foreign Affairs, Dhaka, BD', { 
-  x: infoX, 
-  y: infoY - (lineSpacing * 6), 
-  size: 10, 
-  font: timesBold,
-  color: textColor
-});
+    page.drawImage(qrImage, { 
+      x: width - 120,
+      y: margin + 20,
+      width: 85,
+      height: 85
+    });
 
-// Footer lines at very bottom - closer together with bullet points
-const footerY = margin + 20; // Lower position
-const bullet = '*'; // Bullet character
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0,10).replace(/-/g,'.');
+    const timeStr = now.toISOString().slice(11,19);
 
-page.drawText(`${bullet} To see the Apostille documents, please scan the QR code`, {
-  x: infoX-60, 
-  y: footerY + 12, 
-  size: 7.5, 
-  font: timesRegular, 
-  color: textColor
-});
+    page.drawText(`Digitally signed by ${authName}`, { x: labelX+60, y: margin+140, size:10, font: timesBold });
+    page.drawText(`Date: ${dateStr}`, { x: labelX+60, y: margin+130, size:10, font: timesBold });
+    page.drawText(`${timeStr} +06:00`, { x: labelX+60, y: margin+120, size:10, font: timesBold });
 
-// Blue hyperlink text
-page.drawText(`${bullet} For verification of the e-Apostille, please visit: https://mofa.servicedirectory.apostille.mygov.bd`, {
-  x: infoX-60, 
-  y: footerY, 
-  size: 7.5, 
-  font: timesRegular, 
-  color: linkColor
-});
+    /* ---------- SAVE CERTIFICATE (from code 1) ---------- */
 
     const pdfBytes = await doc.save();
-    return { pdfBytes, certificateNumber: certNo };
+
+    const baseDir = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
+    const certDir = path.join(baseDir, 'certificates');
+
+    await fs.mkdir(certDir, { recursive: true });
+
+    const certFilename = `cert_${certNo}.pdf`;
+    const certPath = path.join(certDir, certFilename);
+
+    await fs.writeFile(certPath, pdfBytes);
+
+    console.log('✅ Certificate saved:', certPath);
+
+    return { 
+      pdfBytes, 
+      certificateNumber: certNo,
+      filePath: `/uploads/certificates/${certFilename}`,
+      localPath: certPath
+    };
 
   } catch (err) {
     console.error('❌ PDF Logic Error:', err);
@@ -479,8 +407,8 @@ page.drawText(`${bullet} For verification of the e-Apostille, please visit: http
 }
 
 module.exports = {
-    generateEApostilleCertificate,
-    sanitizeForPDF: safeText,
-    formatDate,
-    generateQRCode
+  generateEApostilleCertificate,
+  sanitizeForPDF: safeText,
+  formatDate,
+  generateQRCode
 };

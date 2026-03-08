@@ -2,6 +2,11 @@
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const fs = require('fs').promises;
 const path = require('path');
+const getOutputDir = () => {
+  return process.env.UPLOAD_DIR 
+    ? path.join(process.env.UPLOAD_DIR, 'verified')
+    : path.join(__dirname, '..', 'uploads', 'verified');
+};
 
 // Helper function to format date as "08 Feb 2026"
 function formatSignatureDate(dateString) {
@@ -23,8 +28,10 @@ function formatSignatureDate(dateString) {
 async function processDocumentWithSignatures(filePath, signers, certNumber) {
   const ext = path.extname(filePath).toLowerCase();
   const filename = path.basename(filePath, ext);
-  const outputDir = process.env.VERIFIED_DIR || path.join(__dirname, '..', 'uploads', 'verified');
+ 
   const outputPath = path.join(outputDir, `${filename}_verified${ext}`);
+    const baseDir = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
+  const outputDir = path.join(baseDir, 'verified');
   
   await fs.mkdir(outputDir, { recursive: true });
   
@@ -49,9 +56,13 @@ async function processPDF(filePath, signers, outputPath) {
   const { width, height } = lastPage.getSize();
   
   // Define paths FIRST
-  const assetsPath = process.env.ASSETS_PATH || path.join(__dirname, '..', 'assets');
-const fontsPath = path.join(assetsPath, 'fonts');
-const sigPath = path.join(assetsPath, 'signatures', 'documents');
+   const assetsPath = getAssetsPath(); // Use the same function from certificateGenerator
+  const fontsPath = path.join(assetsPath, 'fonts');
+  const sigPath = path.join(assetsPath, 'signatures', 'documents');
+
+   console.log('Processing document:', filePath);
+  console.log('Output to:', outputPath);
+  console.log('Assets:', assetsPath);
   
   // Load Times Roman fonts
   let timesRegular, timesBold;

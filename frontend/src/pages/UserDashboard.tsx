@@ -509,19 +509,24 @@ const getFileUrls = (upload: any) => {
     files = [{ path: upload.file_path, original_name: upload.original_filename }];
   }
   
-  // CRITICAL: Use absolute URL with proper protocol
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+  // CRITICAL: Use the API URL, not localhost
+  const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com';
   
-  return files.map(file => {
-    const filename = extractFilename(file.path || file);
-    // Ensure URL starts with http/https
-    const cleanUrl = filename.startsWith('http') 
-      ? filename 
-      : `${API_BASE_URL}/uploads/${encodeURIComponent(filename)}`;
+  return files.map((file, index) => {
+    // Extract filename from full path
+    let filename = '';
+    if (typeof file === 'string') {
+      filename = file.split('/').pop() || file;
+    } else if (file.path) {
+      filename = file.path.split(/[\\\/]/).pop() || file.path;
+    }
+    
+    // Clean up filename
+    filename = filename.replace(/^.*[\\\/]/, '');
     
     return {
-      url: cleanUrl,
-      name: file.original_name || filename
+      url: `${API_BASE_URL}/uploads/${encodeURIComponent(filename)}`,
+      name: file.original_name || file.name || filename || `File ${index + 1}`
     };
   });
 };
