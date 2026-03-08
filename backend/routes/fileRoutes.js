@@ -1,36 +1,16 @@
-// backend/routes/fileRoutes.js
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const fsp = fs.promises;
-
 const { verifyToken, authorizeRole } = require('../middleware/auth');
 const pool = require('../config/db');
-const cors = require('cors');
-const asyncHandler = (fn) => (req, res, next) => {
-  Promise.resolve(fn(req, res, next)).catch(next);
-};
 
-// Import the certificate generator and document processor from utils
+// Import generators
 const { generateEApostilleCertificate } = require('../utils/certificateGenerator');
 const { processDocumentWithSignatures } = require('../utils/documentProcessor');
 
-
-const ensureDir = async (dirPath) => {
-  try {
-    if (!fs.existsSync(dirPath)) {
-      await fsp.mkdir(dirPath, { recursive: true });
-      console.log('✅ Created directory:', dirPath);
-    }
-  } catch (err) {
-    console.error('❌ Failed to create directory:', dirPath, err.message);
-    throw err;
-  }
-};
-// ========== HELPER FUNCTIONS ==========
-
+// Helper: Generate certificate number
 function generateCertNumber() {
   let num = '';
   for (let i = 0; i < 12; i++) {
@@ -39,108 +19,60 @@ function generateCertNumber() {
   return num;
 }
 
-async function isValidPDF(filePath) {
+// Helper: Delete file (async)
+async function deleteFileAsync(filePath) {
   try {
-    const fileBytes = await fs.readFile(filePath);
-    if (fileBytes.length === 0) {
-      console.error('❌ PDF file is empty:', filePath);
-      return false;
+    if (fs.existsSync(filePath)) {
+      await fs.promises.unlink(filePath);
+      console.log('Deleted:', filePath);
     }
-    const magicNumber = fileBytes.subarray(0, 4).toString('utf8');
-    if (magicNumber !== '%PDF') {
-      console.error('❌ Invalid PDF magic number:', magicNumber);
-      return false;
-    }
-    const { PDFDocument } = require('pdf-lib');
-    await PDFDocument.load(fileBytes);
-    return true;
   } catch (err) {
-    console.error('❌ PDF validation failed:', err.message);
-    return false;
+    console.warn('Could not delete:', filePath, err.message);
   }
 }
 
-async function embedImageToPDF(pdfDoc, imagePath) {
+// Helper: Ensure directory exists (async)
+async function ensureDirAsync(dirPath) {
   try {
-    const imageBytes = await fs.readFile(imagePath);
-    const ext = path.extname(imagePath).toLowerCase();
-    
-    let image;
-    if (ext === '.png') {
-      image = await pdfDoc.embedPng(imageBytes);
-    } else if (['.jpg', '.jpeg'].includes(ext)) {
-      image = await pdfDoc.embedJpg(imageBytes);
-    } else {
-      throw new Error('Unsupported image format');
+    if (!fs.existsSync(dirPath)) {
+      await fs.promises.mkdir(dirPath, { recursive: true });
+      console.log('Created directory:', dirPath);
     }
-
-    const page = pdfDoc.addPage([612, 792]);
-    const { width, height } = page.getSize();
-    
-    const ratio = Math.min(
-      (width - 100) / image.width,
-      (height - 100) / image.height
-    );
-    
-    const scaledWidth = image.width * ratio;
-    const scaledHeight = image.height * ratio;
-    
-    const x = (width - scaledWidth) / 2;
-    const y = (height - scaledHeight) / 2;
-    
-    page.drawImage(image, {
-      x: x,
-      y: y,
-      width: scaledWidth,
-      height: scaledHeight,
-    });
-    
-    return pdfDoc;
   } catch (err) {
-    console.error('❌ Image embedding failed:', err.message);
+    console.error('Failed to create directory:', dirPath, err.message);
     throw err;
   }
 }
 
 // ========== MULTER CONFIGURATION ==========
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // Use environment variable or fallback
-    const baseDir = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads');
-    const dest = path.join(baseDir, 'original');
-    
-    // Ensure directory exists
+  destination: function (req, file, cb) {
     try {
+      const baseDir = process.env.UPLOAD_DIR || '/tmp/uploads';
+      const dest = path.join(baseDir, 'original');
+      
+      // Use sync version for multer callback
       if (!fs.existsSync(dest)) {
         fs.mkdirSync(dest, { recursive: true });
       }
+      
       cb(null, dest);
     } catch (err) {
       console.error('Multer destination error:', err);
       cb(err);
     }
   },
-  filename: (req, file, cb) => {
+  filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    // Sanitize filename
     const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
     cb(null, uniqueSuffix + '-' + safeName);
   }
 });
 
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Only PDF, PNG, and JPEG files are allowed!'), false);
-  }
-};
-
 const upload = multer({ 
   storage: storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-  fileFilter: (req, file, cb) => {
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: function (req, file, cb) {
     const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
     if (allowed.includes(file.mimetype)) {
       cb(null, true);
@@ -150,10 +82,9 @@ const upload = multer({
   }
 });
 
-
 // ========== ROUTES ==========
 
-// Upload files (user only)
+// Upload files
 router.post('/upload', verifyToken, upload.array('files', 10), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
@@ -164,16 +95,20 @@ router.post('/upload', verifyToken, upload.array('files', 10), async (req, res) 
     const hasImages = req.files.some(f => f.mimetype.startsWith('image/'));
     
     if (hasPDF && hasImages) {
-      req.files.forEach(f => fs.unlink(f.path).catch(() => {}));
+      for (const f of req.files) {
+        await deleteFileAsync(f.path);
+      }
       return res.status(400).json({ 
-        message: 'Cannot mix PDF and images. Upload PDF alone or multiple images only.' 
+        message: 'Cannot mix PDF and images' 
       });
     }
     
     if (hasPDF && req.files.length > 1) {
-      req.files.forEach(f => fs.unlink(f.path).catch(() => {}));
+      for (const f of req.files) {
+        await deleteFileAsync(f.path);
+      }
       return res.status(400).json({ 
-        message: 'Only one PDF file allowed per upload.' 
+        message: 'Only one PDF file allowed per upload' 
       });
     }
 
@@ -201,116 +136,17 @@ router.post('/upload', verifyToken, upload.array('files', 10), async (req, res) 
     );
 
     res.status(201).json({
-      message: `File${req.files.length > 1 ? 's' : ''} uploaded successfully`,
+      message: 'Files uploaded successfully',
       data: newUpload.rows[0]
     });
   } catch (err) {
     console.error('Upload error:', err);
     if (req.files) {
-      req.files.forEach(file => fs.unlink(file.path).catch(() => {}));
+      for (const file of req.files) {
+        await deleteFileAsync(file.path);
+      }
     }
     res.status(500).json({ message: 'Server error during upload', error: err.message });
-  }
-});
-
-
-// CORS middleware for this router
-router.use(cors({
-  origin: ['http://localhost:3000', 'https://mygovapostille.com'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
-}));
-
-router.options('*', cors());
-// Replace files for pending upload
-router.put('/replace/:id', verifyToken, upload.array('files', 10), async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const uploadRes = await pool.query(
-      'SELECT * FROM uploads WHERE id = $1 AND user_id = $2 AND status = $3',
-      [id, req.user.id, 'pending']
-    );
-    
-    if (uploadRes.rows.length === 0) {
-      return res.status(404).json({ 
-        message: 'Pending upload not found or already verified' 
-      });
-    }
-    
-    const upload = uploadRes.rows[0];
-    
-    try {
-      if (upload.file_paths && Array.isArray(upload.file_paths)) {
-        for (const file of upload.file_paths) {
-          if (file.path) await fs.unlink(file.path).catch(() => {});
-        }
-      } else if (upload.file_path) {
-        await fs.unlink(upload.file_path).catch(() => {});
-      }
-    } catch (err) {
-      console.warn('Could not delete old files:', err.message);
-    }
-    
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ message: 'No files uploaded' });
-    }
-    
-    const fileData = [];
-    for (const file of req.files) {
-      const fileExt = path.extname(file.originalname).toLowerCase();
-      const isPDF = fileExt === '.pdf';
-      const isImage = ['.png', '.jpg', '.jpeg'].includes(fileExt);
-      
-      if (!isPDF && !isImage) {
-        for (const f of req.files) {
-          await fs.unlink(f.path).catch(() => {});
-        }
-        return res.status(400).json({ message: 'Only PDF, PNG, and JPEG files are allowed' });
-      }
-      
-      fileData.push({
-        path: file.path,
-        original_name: file.originalname
-      });
-    }
-    
-    const isMultiImage = fileData.length > 1;
-    const file_type = isMultiImage ? 'multi-image' : 
-                      (path.extname(fileData[0].original_name).toLowerCase() === '.pdf' ? 'pdf' : 'image');
-
-    const fileNameOnly = path.basename(fileData[0].path);
-    const updatedUpload = await pool.query(
-      `UPDATE uploads 
-       SET file_paths = $1,
-           file_type = $2,
-           original_filename = $3,
-           file_path = $4,
-           updated_at = NOW()
-       WHERE id = $5
-       RETURNING *`,
-      [
-        JSON.stringify(fileData),
-        file_type,
-        fileData.map(f => f.original_name).join(', '),
-        fileNameOnly,
-        id
-      ]
-    );
-    
-    res.json({
-      message: `${fileData.length} file(s) replaced successfully`,
-      data: updatedUpload.rows[0]
-    });
-  } catch (err) {
-    console.error('Replace file error:', err);
-    if (req.files) {
-      req.files.forEach(file => {
-        fs.unlink(file.path).catch(() => {});
-      });
-    }
-    res.status(500).json({ message: 'Server error during file replacement', error: err.message });
   }
 });
 
@@ -328,7 +164,7 @@ router.get('/my-uploads', verifyToken, async (req, res) => {
   }
 });
 
-// Get pending uploads (admin only)
+// Get pending uploads (admin)
 router.get('/pending', verifyToken, authorizeRole('admin'), async (req, res) => {
   try {
     const pendingUploads = await pool.query(
@@ -345,7 +181,7 @@ router.get('/pending', verifyToken, authorizeRole('admin'), async (req, res) => 
   }
 });
 
-// Get completed uploads (admin only)
+// Get completed uploads (admin)
 router.get('/completed', verifyToken, authorizeRole('admin'), async (req, res) => {
   try {
     const completedUploads = await pool.query(
@@ -364,7 +200,7 @@ router.get('/completed', verifyToken, authorizeRole('admin'), async (req, res) =
   }
 });
 
-// Get all additional signers for dropdown (admin only)
+// Get additional signers
 router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (req, res) => {
   try {
     const signers = await pool.query('SELECT * FROM additional_signers ORDER BY name');
@@ -375,7 +211,7 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
   }
 });
 
-// Get verification details for public page (no auth required)
+// Get verification details (public)
 router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
@@ -409,16 +245,12 @@ router.get('/verify/:certificateNumber', async (req, res) => {
   }
 });
 
-
-
-// Modified verify endpoint with re-upload and additional signatures
-// REPLACE your entire verify endpoint:
-
+// CRITICAL: Verify endpoint - SIMPLIFIED AND FIXED
 router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('reuploadedFiles', 10), async (req, res) => {
   const uploadId = req.params.id;
   
   try {
-    console.log('🚀 Starting verification for upload:', uploadId);
+    console.log('Starting verification for upload:', uploadId);
     
     // Get upload details
     const uploads = await pool.query('SELECT * FROM uploads WHERE id = $1', [uploadId]);
@@ -427,9 +259,9 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     }
     
     const upload = uploads.rows[0];
-    console.log('📄 Found upload:', upload.id, upload.original_filename);
+    console.log('Found upload:', upload.id, upload.original_filename);
 
-    // Certificate data from body
+    // Get certificate data
     const {
       documentIssuer,
       documentTitle,
@@ -440,24 +272,22 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
       additionalSigners
     } = req.body;
     
-    // Validate required fields
+    // Validate
     if (!documentIssuer || !documentTitle || !documentLocation || 
         !certificateLocation || !certificateDate || !authorityName) {
       return res.status(400).json({ message: 'All certificate fields are required' });
     }
     
-    // Check if re-uploaded files provided
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: 'Please re-upload documents with stamps' });
     }
     
-    console.log('📤 Re-uploaded files:', req.files.length);
+    console.log('Re-uploaded files:', req.files.length);
 
-    // Generate certificate number
+    // Generate certificate
     const certNumber = generateCertNumber();
-    console.log('🔢 Certificate number:', certNumber);
+    console.log('Certificate number:', certNumber);
 
-    // Generate certificate PDF
     const certificateData = {
       documentIssuer,
       actingCapacity: documentTitle,
@@ -469,27 +299,25 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
       baseUrl: `${req.protocol}://${req.get('host')}`
     };
     
-    console.log('🎨 Generating certificate...');
-    const { pdfBytes, certificateNumber, filePath: certFilePath } = await generateEApostilleCertificate(certificateData);
-    console.log('✅ Certificate generated at:', certFilePath);
+    console.log('Generating certificate...');
+    const certResult = await generateEApostilleCertificate(certificateData);
+    console.log('Certificate generated:', certResult.filePath);
 
-    // Process re-uploaded files with additional signatures
+    // Process signatures if provided
     let reuploadedPaths = [];
     let signaturesData = [];
 
     if (additionalSigners) {
       const signerIds = JSON.parse(additionalSigners);
-      console.log('👥 Additional signers:', signerIds.length);
+      console.log('Additional signers:', signerIds.length);
       
       if (signerIds.length > 0) {
-        // Get additional signers details from database
         const signerIdsArray = signerIds.map(s => s.signerId);
         const signersResult = await pool.query(
           'SELECT * FROM additional_signers WHERE id = ANY($1)',
           [signerIdsArray]
         );
         
-        // Add date to each signer
         const signersWithDates = signersResult.rows.map(signer => {
           const selected = signerIds.find(s => s.signerId === signer.id);
           return {
@@ -500,16 +328,15 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
         
         signaturesData = signersWithDates;
         
-        // Process each re-uploaded file with signatures
         const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
-        await ensureDir(verifiedDir);
+        await ensureDirAsync(verifiedDir);
         
         for (const file of req.files) {
-          console.log('🔏 Processing file with signatures:', file.path);
+          console.log('Processing file with signatures:', file.path);
           const processedPath = await processDocumentWithSignatures(
             file.path,
             signersWithDates,
-            certificateNumber
+            certNumber
           );
           reuploadedPaths.push(processedPath);
         }
@@ -517,7 +344,7 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     }
 
     // Update database
-    console.log('💾 Saving to database...');
+    console.log('Saving to database...');
     await pool.query(
       `UPDATE uploads SET 
         status = 'verified',
@@ -537,8 +364,8 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
       [
         req.user.id,
         JSON.stringify(certificateData),
-        certFilePath,  // Use the path returned from generator
-        certificateNumber,
+        certResult.filePath,
+        certNumber,
         JSON.stringify(reuploadedPaths),
         JSON.stringify(signaturesData),
         documentIssuer,
@@ -550,31 +377,29 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
       ]
     );
     
-    // Delete original files (async, don't block response)
-    console.log('🧹 Cleaning up original files...');
+    // Cleanup original files (don't await - let it run in background)
+    console.log('Cleaning up original files...');
     if (upload.file_paths && Array.isArray(upload.file_paths)) {
       for (const file of upload.file_paths) {
-        if (file.path) {
-          deleteFile(file.path).catch(console.error);
-        }
+        if (file.path) deleteFileAsync(file.path).catch(console.error);
       }
     } else if (upload.file_path) {
-      deleteFile(upload.file_path).catch(console.error);
+      deleteFileAsync(upload.file_path).catch(console.error);
     }
     
-    console.log('✅ Verification complete!');
+    console.log('Verification complete!');
     res.json({ 
-      message: 'e-APOSTILLE Certificate and signed documents generated successfully',
-      certificateNumber,
-      certificatePath: certFilePath
+      message: 'e-APOSTILLE Certificate generated successfully',
+      certificateNumber: certNumber,
+      certificatePath: certResult.filePath
     });
     
   } catch (err) {
-    console.error('❌ Verification error:', err);
-    // Clean up uploaded files on error
+    console.error('Verification error:', err);
+    // Cleanup on error
     if (req.files) {
       for (const file of req.files) {
-        deleteFile(file.path).catch(console.error);
+        deleteFileAsync(file.path).catch(console.error);
       }
     }
     res.status(500).json({ message: 'Certificate generation failed', error: err.message });
@@ -594,90 +419,47 @@ router.delete('/:id', verifyToken, async (req, res) => {
     const upload = uploadRes.rows[0];
     
     if (upload.status !== 'pending') {
-      return res.status(400).json({ 
-        message: 'Only pending uploads can be deleted.' 
-      });
+      return res.status(400).json({ message: 'Only pending uploads can be deleted' });
     }
     
     if (req.user.role !== 'admin' && upload.user_id !== req.user.id) {
-      return res.status(403).json({ 
-        message: 'Access denied' 
-      });
+      return res.status(403).json({ message: 'Access denied' });
     }
     
-    try {
-      if (upload.file_paths && Array.isArray(upload.file_paths)) {
-        for (const file of upload.file_paths) {
-          if (file.path) await fs.unlink(file.path).catch(() => {});
-        }
-      } else if (upload.file_path) {
-        await fs.unlink(upload.file_path).catch(() => {});
+    // Delete files
+    if (upload.file_paths && Array.isArray(upload.file_paths)) {
+      for (const file of upload.file_paths) {
+        if (file.path) await deleteFileAsync(file.path);
       }
-    } catch (err) {
-      console.warn(`⚠️ Could not delete files: ${err.message}`);
+    } else if (upload.file_path) {
+      await deleteFileAsync(upload.file_path);
     }
     
     await pool.query('DELETE FROM uploads WHERE id = $1', [id]);
     
-    res.json({ message: 'আবেদন সফলভাবে মুছে ফেলা হয়েছে!' });
+    res.json({ message: 'Application deleted successfully' });
   } catch (err) {
     console.error('Delete upload error:', err);
-    res.status(500).json({ 
-      message: 'Server error during deletion', 
-      error: err.message 
-    });
+    res.status(500).json({ message: 'Server error during deletion', error: err.message });
   }
 });
 
-
-// Public file check - REMOVE AFTER TESTING
-router.get('/check-file/:filename', async (req, res) => {
-  const filename = req.params.filename;
-  const path = require('path');
-  const fs = require('fs');
-  
-  const checks = [
-    path.join(__dirname, '..', 'uploads', 'original', filename),
-    path.join(__dirname, '..', 'uploads', filename),
-    path.join(process.cwd(), 'uploads', 'original', filename),
-    path.join(process.cwd(), 'uploads', filename),
-    `/opt/render/project/src/backend/uploads/original/${filename}`,
-    `/opt/render/project/src/backend/uploads/${filename}`
-  ];
-  
-  const results = checks.map(p => ({
-    path: p,
-    exists: fs.existsSync(p)
-  }));
-  
-  res.json({ filename, checks: results });
-});
-
-// Serve uploaded files for download (admin only) - WITH CORS
-// REPLACE your download route in fileroute.js:
-
-// Serve uploaded files for download (admin only)
+// Download file
 router.get('/uploads/:filename', verifyToken, authorizeRole('admin'), async (req, res) => {
   try {
     const filename = req.params.filename;
-    
-    // CRITICAL: Use the UPLOAD_DIR environment variable
     const uploadDir = process.env.UPLOAD_DIR || '/tmp/uploads';
     const filePath = path.join(uploadDir, 'original', filename);
     
-    console.log('📥 Download requested:', filename);
-    console.log('📁 Looking at:', filePath);
-    console.log('📁 File exists:', fs.existsSync(filePath));
+    console.log('Download requested:', filename);
+    console.log('Looking at:', filePath);
     
     if (!fs.existsSync(filePath)) {
-      // Try without 'original' subdirectory (legacy support)
       const altPath = path.join(uploadDir, filename);
       if (fs.existsSync(altPath)) {
         return res.sendFile(path.resolve(altPath));
       }
-      
-      console.error('❌ File not found:', filePath);
-      return res.status(404).json({ message: 'File not found', path: filePath });
+      return res.status(404).json({ message: 'File not found' });
     }
     
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -685,11 +467,9 @@ router.get('/uploads/:filename', verifyToken, authorizeRole('admin'), async (req
     res.sendFile(path.resolve(filePath));
     
   } catch (error) {
-    console.error('❌ File serve error:', error);
+    console.error('File serve error:', error);
     res.status(500).json({ message: 'Error serving file' });
   }
 });
-
-
 
 module.exports = router;

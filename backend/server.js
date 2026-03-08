@@ -10,31 +10,32 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // ==========================================
-// CORS - CRITICAL FIX: Allow localhost for development
+// CORS CONFIGURATION
 // ==========================================
 const allowedOrigins = [
-  'https://mygovapostille.com',        // Your GoDaddy domain
-  'https://www.mygovapostille.com',    // www version
-  'http://localhost:3000',             // React dev server
-  'http://localhost:5173',             // Vite dev server
+  'https://mygovapostille.com',
+  'https://www.mygovapostille.com',
+  'http://localhost:3000',
+  'http://localhost:5173',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:5173'
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    console.log('CORS request from:', origin);
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      console.warn('CORS blocked:', origin);
-      return callback(new Error('CORS policy violation: ' + origin), false);
+    console.log('CORS request from:', origin || 'no origin');
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
     }
-    return callback(null, true);
+    console.warn('CORS blocked:', origin);
+    return callback(new Error('Not allowed by CORS: ' + origin), false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token', 'Accept']
 }));
+
+app.options('*', cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -42,62 +43,58 @@ app.use(express.urlencoded({ extended: true }));
 // ==========================================
 // DIRECTORY SETUP - CRITICAL FIX
 // ==========================================
+const isRender = process.env.RENDER === 'true' || !!process.env.RENDER_EXTERNAL_URL;
+const uploadBaseDir = isRender ? '/tmp/uploads' : path.join(__dirname, 'uploads');
 
-// Detect environment
-const isRender = process.env.RENDER === 'true' || process.env.RENDER_EXTERNAL_URL;
-
-// Use absolute paths that work on Render
-const uploadBaseDir = isRender 
-  ? '/tmp/uploads'           // Render writable temp
-  : path.join(__dirname, 'uploads');  // Local development
-
-// Ensure all directories exist
-const requiredDirs = [
+// Create directories SYNCHRONOUSLY (safe for startup)
+const dirs = [
   uploadBaseDir,
   path.join(uploadBaseDir, 'original'),
   path.join(uploadBaseDir, 'certificates'),
   path.join(uploadBaseDir, 'verified')
 ];
 
-requiredDirs.forEach(dir => {
+dirs.forEach(dir => {
   try {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
-      console.log('✅ Created:', dir);
+      console.log('Created directory:', dir);
     }
   } catch (err) {
-    console.error('❌ Failed to create', dir, err.message);
+    console.error('Failed to create directory:', dir, err.message);
+    // Don't crash - log and continue
   }
 });
 
-// Make available globally
+// Set environment variable for other modules
 process.env.UPLOAD_DIR = uploadBaseDir;
 
-// Static files - CRITICAL: Serve from the correct directory
+// Static files
 app.use("/uploads", express.static(uploadBaseDir));
 
-console.log('📁 Upload directory:', uploadBaseDir);
-console.log('📁 Directory exists:', fs.existsSync(uploadBaseDir));
+console.log('Upload directory:', uploadBaseDir);
 
 // ==========================================
 // ROUTES
 // ==========================================
-app.use("/api/auth", require("./routes/authRoutes"));
-app.use("/api/files", require("./routes/fileRoutes"));
+try {
+  app.use("/api/auth", require("./routes/authRoutes"));
+  app.use("/api/files", require("./routes/fileRoutes"));
+} catch (err) {
+  console.error('Route loading error:', err);
+  process.exit(1);
+}
 
-// Health check with detailed info
+// Health check
 app.get("/", (req, res) => {
   res.json({
     status: "running",
     uploadDir: uploadBaseDir,
-    directories: requiredDirs.map(d => ({ path: d, exists: fs.existsSync(d) })),
-    assetsPath: path.join(__dirname, 'assets'),
-    assetsExists: fs.existsSync(path.join(__dirname, 'assets')),
     timestamp: new Date().toISOString()
   });
 });
 
-// Debug endpoint - remove after fixing
+// Debug endpoint
 app.get("/debug", (req, res) => {
   const assetsPath = path.join(__dirname, 'assets');
   res.json({
@@ -106,31 +103,24 @@ app.get("/debug", (req, res) => {
     uploadDir: uploadBaseDir,
     uploadDirExists: fs.existsSync(uploadBaseDir),
     assetsPath: assetsPath,
-    assetsExists: fs.existsSync(assetsPath),
-    fontsPath: path.join(assetsPath, 'fonts'),
-    fontsExists: fs.existsSync(path.join(assetsPath, 'fonts')),
-    env: {
-      NODE_ENV: process.env.NODE_ENV,
-      RENDER: process.env.RENDER,
-      PORT: process.env.PORT
-    }
+    assetsExists: fs.existsSync(assetsPath)
   });
 });
 
-// Error handler
+// ERROR HANDLER
 app.use((err, req, res, next) => {
-  console.error('❌ ERROR:', err.stack);
+  console.error('ERROR:', err);
   res.status(500).json({ 
     message: "Server error", 
     error: err.message,
-    path: req.path,
-    method: req.method
+    path: req.path
   });
 });
 
+// START SERVER
 app.listen(PORT, '0.0.0.0', () => {
   console.log('='.repeat(60));
-  console.log('✅ Server running on port', PORT);
-  console.log('📁 Uploads:', uploadBaseDir);
+  console.log('Server running on port', PORT);
+  console.log('Uploads:', uploadBaseDir);
   console.log('='.repeat(60));
 });
