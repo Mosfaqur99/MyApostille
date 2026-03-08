@@ -10,6 +10,13 @@ const pool = require('../config/db');
 const { generateEApostilleCertificate } = require('../utils/certificateGenerator');
 const { processDocumentWithSignatures } = require('../utils/documentProcessor');
 
+console.log('Loading fileRoutes...');
+console.log('processDocumentWithSignatures:', typeof processDocumentWithSignatures);
+
+if (typeof processDocumentWithSignatures !== 'function') {
+  console.error('WARNING: processDocumentWithSignatures is not a function!');
+  console.error('Module exports:', require('../utils/documentProcessor'));
+}
 // Helper: Generate certificate number
 function generateCertNumber() {
   let num = '';
@@ -246,22 +253,30 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 });
 
 // CRITICAL: Verify endpoint - SIMPLIFIED AND FIXED
+// REPLACE the entire verify route with this diagnostic version:
+
 router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('reuploadedFiles', 10), async (req, res) => {
   const uploadId = req.params.id;
   
+  console.log('🔍 DIAGNOSTIC: Verify endpoint called');
+  console.log('🔍 Upload ID:', uploadId);
+  console.log('🔍 User:', req.user?.id, req.user?.email);
+  console.log('🔍 Files received:', req.files?.length || 0);
+  console.log('🔍 Body keys:', Object.keys(req.body));
+  
   try {
-    console.log('Starting verification for upload:', uploadId);
-    
-    // Get upload details
+    // Step 1: Get upload
+    console.log('🔍 Step 1: Fetching upload...');
     const uploads = await pool.query('SELECT * FROM uploads WHERE id = $1', [uploadId]);
     if (uploads.rows.length === 0) {
+      console.log('🔍 ERROR: Upload not found');
       return res.status(404).json({ message: 'Upload not found' });
     }
-    
     const upload = uploads.rows[0];
-    console.log('Found upload:', upload.id, upload.original_filename);
+    console.log('🔍 Step 1 PASSED: Found upload', upload.id);
 
-    // Get certificate data
+    // Step 2: Validate fields
+    console.log('🔍 Step 2: Validating fields...');
     const {
       documentIssuer,
       documentTitle,
@@ -272,21 +287,23 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
       additionalSigners
     } = req.body;
     
-    // Validate
     if (!documentIssuer || !documentTitle || !documentLocation || 
         !certificateLocation || !certificateDate || !authorityName) {
+      console.log('🔍 ERROR: Missing fields', { documentIssuer, documentTitle, documentLocation, certificateLocation, certificateDate, authorityName });
       return res.status(400).json({ message: 'All certificate fields are required' });
     }
-    
+    console.log('🔍 Step 2 PASSED: Fields valid');
+
     if (!req.files || req.files.length === 0) {
+      console.log('🔍 ERROR: No files uploaded');
       return res.status(400).json({ message: 'Please re-upload documents with stamps' });
     }
-    
-    console.log('Re-uploaded files:', req.files.length);
+    console.log('🔍 Step 3 PASSED: Files present');
 
-    // Generate certificate
+    // Step 4: Generate certificate
+    console.log('🔍 Step 4: Generating certificate...');
     const certNumber = generateCertNumber();
-    console.log('Certificate number:', certNumber);
+    console.log('🔍 Certificate number:', certNumber);
 
     const certificateData = {
       documentIssuer,
@@ -299,24 +316,35 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
       baseUrl: `${req.protocol}://${req.get('host')}`
     };
     
-    console.log('Generating certificate...');
-    const certResult = await generateEApostilleCertificate(certificateData);
-    console.log('Certificate generated:', certResult.filePath);
+    console.log('🔍 Calling generateEApostilleCertificate...');
+    let certResult;
+    try {
+      certResult = await generateEApostilleCertificate(certificateData);
+      console.log('🔍 Step 4 PASSED: Certificate generated', certResult.filePath);
+    } catch (certErr) {
+      console.error('🔍 CERTIFICATE GENERATION FAILED:', certErr);
+      console.error('🔍 Stack:', certErr.stack);
+      throw certErr;
+    }
 
-    // Process signatures if provided
+    // Step 5: Process signatures
+    console.log('🔍 Step 5: Processing signatures...');
     let reuploadedPaths = [];
     let signaturesData = [];
 
     if (additionalSigners) {
+      console.log('🔍 Additional signers provided:', additionalSigners);
       const signerIds = JSON.parse(additionalSigners);
-      console.log('Additional signers:', signerIds.length);
+      console.log('🔍 Parsed signer IDs:', signerIds);
       
       if (signerIds.length > 0) {
         const signerIdsArray = signerIds.map(s => s.signerId);
+        console.log('🔍 Fetching signers from DB...');
         const signersResult = await pool.query(
           'SELECT * FROM additional_signers WHERE id = ANY($1)',
           [signerIdsArray]
         );
+        console.log('🔍 Found signers:', signersResult.rows.length);
         
         const signersWithDates = signersResult.rows.map(signer => {
           const selected = signerIds.find(s => s.signerId === signer.id);
@@ -329,68 +357,80 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
         signaturesData = signersWithDates;
         
         const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
+        console.log('🔍 Ensuring verified directory:', verifiedDir);
         await ensureDirAsync(verifiedDir);
         
         for (const file of req.files) {
-          console.log('Processing file with signatures:', file.path);
-          const processedPath = await processDocumentWithSignatures(
-            file.path,
-            signersWithDates,
-            certNumber
-          );
-          reuploadedPaths.push(processedPath);
+          console.log('🔍 Processing file:', file.path);
+          try {
+            const processedPath = await processDocumentWithSignatures(
+              file.path,
+              signersWithDates,
+              certNumber
+            );
+            reuploadedPaths.push(processedPath);
+            console.log('🔍 File processed:', processedPath);
+          } catch (procErr) {
+            console.error('🔍 FILE PROCESSING FAILED:', procErr);
+            throw procErr;
+          }
         }
       }
     }
+    console.log('🔍 Step 5 PASSED: Signatures processed');
 
-    // Update database
-    console.log('Saving to database...');
-    await pool.query(
-      `UPDATE uploads SET 
-        status = 'verified',
-        verified_by = $1,
-        verified_at = NOW(),
-        certificate_data = $2,
-        certificate_pdf_path = $3,
-        certificate_number = $4,
-        reuploaded_file_paths = $5,
-        additional_signatures_data = $6,
-        document_issuer = $7,
-        document_title = $8,
-        document_location = $9,
-        certificate_date = $10,
-        authority_name = $11
-      WHERE id = $12`,
-      [
-        req.user.id,
-        JSON.stringify(certificateData),
-        certResult.filePath,
-        certNumber,
-        JSON.stringify(reuploadedPaths),
-        JSON.stringify(signaturesData),
-        documentIssuer,
-        documentTitle,
-        certificateLocation,
-        certificateDate,
-        authorityName,
-        uploadId
-      ]
-    );
+    // Step 6: Save to database
+    console.log('🔍 Step 6: Saving to database...');
+    try {
+      await pool.query(
+        `UPDATE uploads SET 
+          status = 'verified',
+          verified_by = $1,
+          verified_at = NOW(),
+          certificate_data = $2,
+          certificate_pdf_path = $3,
+          certificate_number = $4,
+          reuploaded_file_paths = $5,
+          additional_signatures_data = $6,
+          document_issuer = $7,
+          document_title = $8,
+          document_location = $9,
+          certificate_date = $10,
+          authority_name = $11
+        WHERE id = $12`,
+        [
+          req.user.id,
+          JSON.stringify(certificateData),
+          certResult.filePath,
+          certNumber,
+          JSON.stringify(reuploadedPaths),
+          JSON.stringify(signaturesData),
+          documentIssuer,
+          documentTitle,
+          certificateLocation,
+          certificateDate,
+          authorityName,
+          uploadId
+        ]
+      );
+      console.log('🔍 Step 6 PASSED: Database updated');
+    } catch (dbErr) {
+      console.error('🔍 DATABASE ERROR:', dbErr);
+      throw dbErr;
+    }
     
-    // Cleanup original files (don't await - let it run in background)
-    console.log('🧹 Cleaning up original files...');
+    // Step 7: Cleanup
+    console.log('🔍 Step 7: Cleaning up...');
     if (upload.file_paths && Array.isArray(upload.file_paths)) {
       for (const file of upload.file_paths) {
-        if (file.path) {
-          // Use the correct function name: deleteFileAsync
-          deleteFileAsync(file.path).catch(console.error);
-        }
+        if (file.path) deleteFileAsync(file.path).catch(e => console.log('Cleanup error:', e.message));
       }
     } else if (upload.file_path) {
-      deleteFileAsync(upload.file_path).catch(console.error);
+      deleteFileAsync(upload.file_path).catch(e => console.log('Cleanup error:', e.message));
     }
-    
-    console.log('Verification complete!');
+    console.log('🔍 Step 7 PASSED: Cleanup done');
+
+    console.log('✅ VERIFICATION COMPLETE');
     res.json({ 
       message: 'e-APOSTILLE Certificate generated successfully',
       certificateNumber: certNumber,
@@ -398,14 +438,21 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     });
     
   } catch (err) {
-    console.error('❌ Verification error:', err);
+    console.error('❌ VERIFICATION FAILED:', err);
+    console.error('❌ Stack:', err.stack);
+    console.error('❌ Message:', err.message);
+    
     // Cleanup on error
     if (req.files) {
       for (const file of req.files) {
-        deleteFileAsync(file.path).catch(console.error);  // Fixed: deleteFileAsync not deleteFile
+        deleteFileAsync(file.path).catch(console.error);
       }
     }
-    res.status(500).json({ message: 'Certificate generation failed', error: err.message });
+    res.status(500).json({ 
+      message: 'Certificate generation failed', 
+      error: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 });
 
