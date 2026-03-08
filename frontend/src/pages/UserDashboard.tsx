@@ -34,13 +34,20 @@ const UserDashboard = () => {
 const [imageBlobs, setImageBlobs] = useState<{[key: string]: string}>({});
 
 // ADD: Function to fetch images with auth token
+// ADD: Function to fetch images with auth token
 const fetchImageWithAuth = async (fileUrl: string, filename: string) => {
   try {
     const token = localStorage.getItem('token');
-    const response = await axios.get(fileUrl, {
+    const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com';
+    
+    // fileUrl already starts with /api/files/uploads/...
+    // So use API_BASE_URL + fileUrl (not baseURL config)
+    const fullUrl = `${API_BASE_URL}${fileUrl}`;
+    
+    const response = await axios.get(fullUrl, {
       headers: { 'x-auth-token': token },
-      responseType: 'blob',
-      baseURL: process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com'
+      responseType: 'blob'
+      // NO baseURL here!
     });
     
     const blobUrl = URL.createObjectURL(response.data);
@@ -514,19 +521,22 @@ const handleSaveEditChanges = async () => {
   // Handle view upload
  // REPLACE handleViewUpload function:
 
+// REPLACE handleViewUpload:
+
 const handleViewUpload = (upload: any) => {
   // Clear previous blobs
   clearImageBlobs();
   
   if (upload.file_type === 'pdf') {
-    const filename = extractFilename(upload.file_path);
-    const pdfUrl = `${process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com'}/uploads/${filename}`;
-    window.open(pdfUrl, '_blank');
+    // For PDF, just show message - no download
+    toast.info('PDF ফাইল দেখার জন্য ডাউনলোড করুন না');
+    return;
   } else {
     setViewingUpload(upload);
     // Load images with auth
     const files = getFileUrls(upload);
     files.forEach(file => {
+      const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com';
       fetchImageWithAuth(file.url, file.name);
     });
   }
@@ -1302,14 +1312,6 @@ const getFileUrls = (upload: any) => {
       <p className="text-xs font-medium text-gray-800 truncate" title={file.name}>
         {file.name.length > 20 ? file.name.substring(0, 17) + '...' : file.name}
       </p>
-      <a 
-        href={imageBlobs[file.name] || '#'} 
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="mt-2 inline-block w-full text-center bg-blue-50 text-blue-700 text-xs font-medium py-1.5 rounded hover:bg-blue-100 transition-colors"
-      >
-        ফুল সাইজে দেখুন
-      </a>
     </div>
   </div>
 ))}

@@ -495,15 +495,18 @@ router.delete('/:id', verifyToken, async (req, res) => {
 });
 
 // Download file
-router.get('/uploads/:filename', verifyToken, authorizeRole('admin'), async (req, res) => {
+// REPLACE the download route - allow users to view their own files
+
+router.get('/uploads/:filename', verifyToken, async (req, res) => {
   try {
     const filename = req.params.filename;
     const uploadDir = process.env.UPLOAD_DIR || '/tmp/uploads';
     const filePath = path.join(uploadDir, 'original', filename);
     
-    console.log('Download requested:', filename);
-    console.log('Looking at:', filePath);
+    console.log('📥 View requested by user:', req.user.id, 'role:', req.user.role);
+    console.log('📁 File:', filename);
     
+    // Check if file exists
     if (!fs.existsSync(filePath)) {
       const altPath = path.join(uploadDir, filename);
       if (fs.existsSync(altPath)) {
@@ -512,12 +515,37 @@ router.get('/uploads/:filename', verifyToken, authorizeRole('admin'), async (req
       return res.status(404).json({ message: 'File not found' });
     }
     
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Type', 'application/octet-stream');
+    // If user is not admin, verify they own this file
+    if (req.user.role !== 'admin') {
+      const uploads = await pool.query(
+        `SELECT * FROM uploads 
+         WHERE (file_path LIKE $1 OR file_paths::text LIKE $1)
+         AND user_id = $2`,
+        [`%${filename}%`, req.user.id]
+      );
+      
+      if (uploads.rows.length === 0) {
+        console.log('❌ Access denied: User', req.user.id, 'does not own file', filename);
+        return res.status(403).json({ message: 'Access denied - you do not own this file' });
+      }
+    }
+    
+    // Set proper content type for images (not download)
+    const ext = path.extname(filename).toLowerCase();
+    const contentType = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif'
+    }[ext] || 'application/octet-stream';
+    
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    // NO Content-Disposition header (this makes it view, not download)
     res.sendFile(path.resolve(filePath));
     
   } catch (error) {
-    console.error('File serve error:', error);
+    console.error('❌ File serve error:', error);
     res.status(500).json({ message: 'Error serving file' });
   }
 });
