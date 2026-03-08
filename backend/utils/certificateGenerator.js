@@ -52,9 +52,36 @@ async function generateEApostilleCertificate(certificateData) {
     const margin = 25;
     const leftMargin = margin + 20;
     const labelX = leftMargin;
-    const assetsPath = process.env.ASSETS_PATH || path.join(__dirname, '..', 'assets');
+    const getAssetsPath = () => {
+  // On Render, use the project src directory
+  if (process.env.RENDER === 'true') {
+    return path.join('/opt/render/project/src', 'backend', 'assets');
+  }
+  // Local development
+  return path.join(__dirname, '..', 'assets');
+};
+    const assetsPath = getAssetsPath();
 const fontsPath = path.join(assetsPath, 'fonts');
 
+    const saveCertificate = async (pdfBytes, certNumber) => {
+  // Use /tmp for Render, local uploads for dev
+  const baseDir = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
+  const certDir = path.join(baseDir, 'certificates');
+  
+  // Ensure directory exists
+  await fs.mkdir(certDir, { recursive: true });
+  
+  const certFilename = `cert_${certNumber}.pdf`;
+  const certPath = path.join(certDir, certFilename);
+  
+  await fs.writeFile(certPath, pdfBytes);
+
+
+    return {
+    localPath: certPath,
+    dbPath: `/uploads/certificates/${certFilename}`
+  };
+};
     let timesRegular, timesBold, timesItalic;
 
     try {

@@ -90,12 +90,22 @@ async function embedImageToPDF(pdfDoc, imagePath) {
 // ========== MULTER CONFIGURATION ==========
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../', process.env.UPLOAD_DIR || 'uploads/original');
+    // Use the global upload directory from server.js
+    const uploadDir = process.env.UPLOAD_DIR 
+      ? path.join(process.env.UPLOAD_DIR, 'original')
+      : path.join(__dirname, '../uploads/original');
+    
+    // Ensure directory exists
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
+    const safeFilename = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    cb(null, uniqueSuffix + '-' + safeFilename);
   }
 });
 
@@ -111,7 +121,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({ 
   storage: storage,
   fileFilter: fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
 });
 
 // ========== ROUTES ==========
