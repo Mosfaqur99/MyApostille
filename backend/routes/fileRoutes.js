@@ -9,6 +9,9 @@ const fsRegular = require('fs');
 const { verifyToken, authorizeRole } = require('../middleware/auth');
 const pool = require('../config/db');
 const cors = require('cors');
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
 
 // Import the certificate generator and document processor from utils
 const { generateEApostilleCertificate } = require('../utils/certificateGenerator');
@@ -402,7 +405,7 @@ router.post('/verify/:id',
     origin: ['http://localhost:3000', 'https://mygovapostille.com'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'x-auth-token']
-  }), verifyToken, authorizeRole('admin'), upload.array('reuploadedFiles', 10), async (req, res) => {
+  }), verifyToken, authorizeRole('admin'), upload.array('reuploadedFiles', 10), asyncHandler(async (req, res) => {
   const uploadId = req.params.id;
   
   try {
@@ -563,7 +566,7 @@ router.post('/verify/:id',
     }
     res.status(500).json({ message: 'Certificate generation failed', error: err.message });
   }
-});
+}));
 
 // Delete upload
 router.delete('/:id', verifyToken, async (req, res) => {

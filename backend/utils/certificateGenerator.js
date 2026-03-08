@@ -59,11 +59,17 @@ function getAssetsPath() {
 }
 
 async function generateEApostilleCertificate(certificateData) {
+  console.log('🚀 STARTING CERTIFICATE GENERATION');
+  console.log('Data received:', JSON.stringify(certificateData, null, 2));
   try {
     const doc = await PDFDocument.create();
+    console.log('✅ PDF document created');
     doc.registerFontkit(fontkit);
     
+     console.log('✅ Fontkit registered');
+    
     const page = doc.addPage([595.28, 841.89]);
+    console.log('✅ Page added');
     const { width, height } = page.getSize();
     
     const textColor = rgb(46/255, 46/255, 46/255);
@@ -75,7 +81,22 @@ async function generateEApostilleCertificate(certificateData) {
     const labelX = leftMargin;
 
     const assetsPath = getAssetsPath();
+    console.log('📁 Assets path:', assetsPath);
     const fontsPath = path.join(assetsPath, 'fonts');
+    console.log('📁 Fonts path:', fontsPath);
+    console.log('📁 Fonts exists:', require('fs').existsSync(fontsPath));
+
+     try {
+      const fs = require('fs');
+      if (fs.existsSync(assetsPath)) {
+        console.log('📂 Assets contents:', fs.readdirSync(assetsPath));
+        if (fs.existsSync(fontsPath)) {
+          console.log('📂 Fonts contents:', fs.readdirSync(fontsPath));
+        }
+      }
+    } catch (e) {
+      console.error('Cannot list assets:', e.message);
+    }
 
     let timesRegular, timesBold, timesItalic;
 

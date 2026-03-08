@@ -210,20 +210,19 @@ api.get('/files/completed')
   // Add this function in AdminDashboard component (after handleDeleteUpload)
 // REPLACE downloadUserDocument function:
 
+// In AdminDashboard.tsx, REPLACE the entire downloadUserDocument function:
+
 const downloadUserDocument = async (filePath: string, filename: string) => {
   try {
     const token = localStorage.getItem('token');
     
-    // Extract filename from full Windows/Linux path
+    // Extract just the filename from any path format (Windows or Linux)
     const fileNameOnly = filePath.replace(/^.*[\\\/]/, '');
     
-    // Use environment API URL, never localhost
-    const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com';
-    
-    console.log('Downloading:', `${API_BASE_URL}/api/files/uploads/${fileNameOnly}`);
-    
+    // CRITICAL: Use the SAME api instance, don't create new URL
+    // The api instance already has baseURL set to https://.../api
     const response = await api.get(
-      `${API_BASE_URL}/files/uploads/${encodeURIComponent(fileNameOnly)}`,
+      `/files/uploads/${encodeURIComponent(fileNameOnly)}`,
       {
         headers: { 'x-auth-token': token },
         responseType: 'blob'
@@ -241,9 +240,11 @@ const downloadUserDocument = async (filePath: string, filename: string) => {
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
     
-  } catch (error) {
-    console.error('Download failed:', error);
-    toast.error('Download failed - check console');
+    toast.success('Download started');
+    
+  } catch (error: any) {
+    console.error('Download failed', error);
+    toast.error(error.response?.data?.message || 'Download failed');
   }
 };
 
