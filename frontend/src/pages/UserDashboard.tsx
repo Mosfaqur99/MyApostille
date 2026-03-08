@@ -30,7 +30,33 @@ const UserDashboard = () => {
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceFileInputRef = useRef<HTMLInputElement>(null);
-  // Add these AFTER your existing state declarations
+  // ADD: State for image blobs (for viewing with auth)
+const [imageBlobs, setImageBlobs] = useState<{[key: string]: string}>({});
+
+// ADD: Function to fetch images with auth token
+const fetchImageWithAuth = async (fileUrl: string, filename: string) => {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await axios.get(fileUrl, {
+      headers: { 'x-auth-token': token },
+      responseType: 'blob',
+      baseURL: process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com'
+    });
+    
+    const blobUrl = URL.createObjectURL(response.data);
+    setImageBlobs(prev => ({ ...prev, [filename]: blobUrl }));
+    return blobUrl;
+  } catch (error) {
+    console.error('Failed to load image:', error);
+    return null;
+  }
+};
+
+// ADD: Cleanup function
+const clearImageBlobs = () => {
+  Object.values(imageBlobs).forEach(url => URL.revokeObjectURL(url));
+  setImageBlobs({});
+};
 const [currentFiles, setCurrentFiles] = useState<any[]>([]);
 const [newFiles, setNewFiles] = useState<File[]>([]);
 const [newFilePreviews, setNewFilePreviews] = useState<string[]>([]);
@@ -486,18 +512,29 @@ const handleSaveEditChanges = async () => {
   // };
 
   // Handle view upload
-  const handleViewUpload = (upload: any) => {
-    if (upload.file_type === 'pdf') {
-      const filename = extractFilename(upload.file_path);
-      const pdfUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/uploads/${filename}`;
-      window.open(pdfUrl, '_blank');
-    } else {
-      setViewingUpload(upload);
-    }
-  };
+ // REPLACE handleViewUpload function:
+
+const handleViewUpload = (upload: any) => {
+  // Clear previous blobs
+  clearImageBlobs();
+  
+  if (upload.file_type === 'pdf') {
+    const filename = extractFilename(upload.file_path);
+    const pdfUrl = `${process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com'}/uploads/${filename}`;
+    window.open(pdfUrl, '_blank');
+  } else {
+    setViewingUpload(upload);
+    // Load images with auth
+    const files = getFileUrls(upload);
+    files.forEach(file => {
+      fetchImageWithAuth(file.url, file.name);
+    });
+  }
+};
 
   // Get file URLs for viewing
- // REPLACE the existing getFileUrls function with this
+
+
 const getFileUrls = (upload: any) => {
   if (!upload) return [];
   
@@ -509,23 +546,21 @@ const getFileUrls = (upload: any) => {
     files = [{ path: upload.file_path, original_name: upload.original_filename }];
   }
   
-  // CRITICAL: Use the API URL, not localhost
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com';
   
   return files.map((file, index) => {
-    // Extract filename from full path
     let filename = '';
     if (typeof file === 'string') {
-      filename = file.split('/').pop() || file;
+      filename = file.replace(/^.*[\\\/]/, '');
     } else if (file.path) {
-      filename = file.path.split(/[\\\/]/).pop() || file.path;
+      filename = file.path.replace(/^.*[\\\/]/, '');
     }
     
-    // Clean up filename
-    filename = filename.replace(/^.*[\\\/]/, '');
+    filename = filename.split('?')[0];
     
     return {
-      url: `${API_BASE_URL}/uploads/${encodeURIComponent(filename)}`,
+      // Use API endpoint (requires auth)
+      url: `${API_BASE_URL}/api/files/uploads/${encodeURIComponent(filename)}`,
       name: file.original_name || file.name || filename || `File ${index + 1}`
     };
   });
@@ -1243,50 +1278,51 @@ const getFileUrls = (upload: any) => {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {getFileUrls(viewingUpload).map((file, index) => (
-                      <div key={index} className="border rounded-lg overflow-hidden bg-gray-50 hover:shadow-lg transition-shadow">
-                        <div className="aspect-square relative bg-gray-200">
-                          {file &&(
-                            <img 
-                            src={file.url} 
-                            alt={`Preview ${index + 1}`} 
-                            className="w-full h-full object-contain p-2"
-                            onError={(e) => {
-                              e.currentTarget.onerror = null;
-                              e.currentTarget.parentElement!.innerHTML = `
-                                <div class="w-full h-full flex items-center justify-center bg-gray-100">
-                                  <div class="text-center p-4">
-                                    <div class="text-4xl mb-2">⚠️</div>
-                                    <p class="text-gray-600 font-medium">ইমেজ লোড করতে ব্যর্থ</p>
-                                  </div>
-                                </div>
-                              `;
-                            }}
-                          />
-                          )}
-                        </div>
-                        <div className="p-3">
-                          <p className="text-xs font-medium text-gray-800 truncate" title={file.name}>
-                            {file.name.length > 20 ? file.name.substring(0, 17) + '...' : file.name}
-                          </p>
-                          <a 
-                            href={file.url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-block w-full text-center bg-blue-50 text-blue-700 text-xs font-medium py-1.5 rounded hover:bg-blue-100 transition-colors"
-                          >
-                            ফুল সাইজে দেখুন
-                          </a>
-                        </div>
-                      </div>
-                    ))}
+                    // In your view modal, replace the image display:
+
+{getFileUrls(viewingUpload).map((file, index) => (
+  <div key={index} className="border rounded-lg overflow-hidden bg-gray-50 hover:shadow-lg transition-shadow">
+    <div className="aspect-square relative bg-gray-200">
+      {imageBlobs[file.name] ? (
+        <img 
+          src={imageBlobs[file.name]} 
+          alt={`Preview ${index + 1}`} 
+          className="w-full h-full object-contain p-2"
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center bg-gray-100">
+          <div className="text-center p-4">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
+            <p className="text-gray-600 font-medium">লোড হচ্ছে...</p>
+          </div>
+        </div>
+      )}
+    </div>
+    <div className="p-3">
+      <p className="text-xs font-medium text-gray-800 truncate" title={file.name}>
+        {file.name.length > 20 ? file.name.substring(0, 17) + '...' : file.name}
+      </p>
+      <a 
+        href={imageBlobs[file.name] || '#'} 
+        target="_blank" 
+        rel="noopener noreferrer"
+        className="mt-2 inline-block w-full text-center bg-blue-50 text-blue-700 text-xs font-medium py-1.5 rounded hover:bg-blue-100 transition-colors"
+      >
+        ফুল সাইজে দেখুন
+      </a>
+    </div>
+  </div>
+))}
                   </div>
                 )}
               </div>
 
               <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end">
                 <button
-                  onClick={() => setViewingUpload(null)}
+                  onClick={() => {
+                    clearImageBlobs();
+                    setViewingUpload(null);
+                  }}
                   className="px-5 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
                 >
                   বন্ধ করুন
