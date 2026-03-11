@@ -1,6 +1,6 @@
 // frontend/src/components/Header.tsx
 import React, { useEffect } from 'react';
-import govLogo from '../assets/gov.jpg';
+import govLogo from '../assets/gov.png';
 import { gsap } from 'gsap';
 
 const Header: React.FC = () => {

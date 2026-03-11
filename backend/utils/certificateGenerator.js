@@ -147,7 +147,7 @@ async function generateEApostilleCertificate(certificateData) {
     const drawRow = (num, labelText, valueText, yPos, options = {}) => {
       const labelSize = options.labelSize || 12;
       const valueSize = options.valueSize || 12;
-      const gap = options.gap || 4;
+      const gap = options.gap || 2;
       
       let currentX = labelX;
       
@@ -450,7 +450,7 @@ async function generateEApostilleCertificate(certificateData) {
       color: textColor
     });
 
-    page.drawText(`${bullet} For verification of the e-Apostille, please visit: https://mofa.servicedirectory.apostille.mygov.bd`, {
+    page.drawText(`${bullet} For verification of the e-Apostille, please visit: ${verifyBaseUrl}`, {
       x: infoX - 60, 
       y: footerY, 
       size: 7.5, 
