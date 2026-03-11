@@ -147,7 +147,7 @@ async function generateEApostilleCertificate(certificateData) {
     const drawRow = (num, labelText, valueText, yPos, options = {}) => {
       const labelSize = options.labelSize || 12;
       const valueSize = options.valueSize || 12;
-      const gap = options.gap || 9;
+      const gap = options.gap || 4;
       
       let currentX = labelX;
       
@@ -365,7 +365,10 @@ async function generateEApostilleCertificate(certificateData) {
     const qrX = width - margin - qrSize - 25;
     const bottomSectionY = margin + 80;
 
-    const qrBuffer = await generateQRCode(`https://mofa.servicedirectory.apostille.mygov.bd/verify/${certNo}`);
+    const verifyBaseUrl = process.env.VERIFY_BASE_URL || 'https://mygovapostille.com';
+    const verifyUrl = `${verifyBaseUrl}/verify/${certNo}`;
+    
+    const qrBuffer = await generateQRCode(verifyUrl);
     if (qrBuffer) {
       const qrImage = await doc.embedPng(qrBuffer);
       page.drawImage(qrImage, { 
