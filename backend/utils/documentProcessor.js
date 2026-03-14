@@ -1,5 +1,6 @@
 // backend/utils/documentProcessor.js
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+const fontkit = require('@pdf-lib/fontkit');  // ADD THIS IMPORT
 const fs = require('fs');  // KEEP full fs module
 const fsp = fs.promises;  // Separate promises reference
 const path = require('path');
@@ -89,7 +90,7 @@ async function processPDF(filePath, signers, outputPath) {
   try {
     const pdfBytes = await fsp.readFile(filePath);
     const pdfDoc = await PDFDocument.load(pdfBytes);
-    pdfDoc.registerFontkit(fontkit);
+    pdfDoc.registerFontkit(fontkit);  // Now fontkit is defined
     const pages = pdfDoc.getPages();
     const lastPage = pages[pages.length - 1];
     const { width, height } = lastPage.getSize();
@@ -101,6 +102,12 @@ async function processPDF(filePath, signers, outputPath) {
     console.log('🔍 assetsPath:', assetsPath);
     console.log('🔍 fontsPath:', fontsPath);
     console.log('🔍 sigPath:', sigPath);
+
+    // Verify signature files exist
+    for (const signer of signers) {
+      const sigFilePath = path.join(sigPath, signer.signature_image);
+      console.log(`🔍 Checking signature: ${sigFilePath} - Exists: ${fs.existsSync(sigFilePath)}`);
+    }
 
     // Load fonts
     let timesRegular, timesBold;
@@ -117,22 +124,14 @@ async function processPDF(filePath, signers, outputPath) {
       timesBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     }
     
-    // Load text images
-    let verifiedTextImage, certifiedTextImage;
+    // Load "Attested" text image (replaces verified/certified)
+    let attestedTextImage;
     try {
-      const verifiedBytes = await fsp.readFile(path.join(sigPath, 'verified_text.png'));
-      verifiedTextImage = await pdfDoc.embedPng(verifiedBytes);
-      console.log('✅ verified_text.png loaded');
+      const attestedBytes = await fsp.readFile(path.join(sigPath, 'attested_text.png'));
+      attestedTextImage = await pdfDoc.embedPng(attestedBytes);
+      console.log('✅ attested_text.png loaded');
     } catch (err) {
-      console.log('⚠️ verified_text.png not found');
-    }
-    
-    try {
-      const certifiedBytes = await fsp.readFile(path.join(sigPath, 'certified_text.png'));
-      certifiedTextImage = await pdfDoc.embedPng(certifiedBytes);
-      console.log('✅ certified_text.png loaded');
-    } catch (err) {
-      console.log('⚠️ certified_text.png not found');
+      console.log('⚠️ attested_text.png not found, will use text fallback');
     }
     
     const numSigners = signers.length;
@@ -148,7 +147,7 @@ async function processPDF(filePath, signers, outputPath) {
     const startY = bottomMargin + totalSigHeight - 20;
     
     const blueColor = rgb(0.25, 0.25, 0.6);
-    const TEXT_SIZE = 8;
+    const TEXT_SIZE = 10;
     const colGap = 30;
     
     // Draw signatures in grid
@@ -164,23 +163,21 @@ async function processPDF(filePath, signers, outputPath) {
       
       const centerX = x + (sigBoxWidth / 2);
       
-      // Draw text image
-      const isFirst = i === 0;
-      const textImage = isFirst ? verifiedTextImage : certifiedTextImage;
-      
-      if (textImage) {
+      // Draw "Attested" text/image for ALL signers (replaces verified/certified)
+      if (attestedTextImage) {
         const textHeight = 18;
-        const textScale = textHeight / textImage.height;
-        const textWidth = textImage.width * textScale;
+        const textScale = textHeight / attestedTextImage.height;
+        const textWidth = attestedTextImage.width * textScale;
         
-        lastPage.drawImage(textImage, {
+        lastPage.drawImage(attestedTextImage, {
           x: centerX - (textWidth / 2),
           y: y,
           width: textWidth,
           height: textHeight
         });
       } else {
-        const text = isFirst ? 'Verified and found correct' : 'Certified';
+        // Fallback to text if image not found
+        const text = 'Attested';
         const textWidth = timesRegular.widthOfTextAtSize(text, TEXT_SIZE);
         lastPage.drawText(text, {
           x: centerX - (textWidth / 2),
@@ -195,8 +192,18 @@ async function processPDF(filePath, signers, outputPath) {
       
       // Draw signature image
       try {
-        const sigBytes = await fsp.readFile(path.join(sigPath, signer.signature_image));
-        const sigImage = await pdfDoc.embedPng(sigBytes).catch(() => pdfDoc.embedJpg(sigBytes));
+        const sigFullPath = path.join(sigPath, signer.signature_image);
+        console.log(`🔍 Loading signature from: ${sigFullPath}`);
+        
+        const sigBytes = await fsp.readFile(sigFullPath);
+        
+        // Try PNG first, then JPG
+        let sigImage;
+        try {
+          sigImage = await pdfDoc.embedPng(sigBytes);
+        } catch (pngErr) {
+          sigImage = await pdfDoc.embedJpg(sigBytes);
+        }
         
         const sigHeight = 35;
         const sigScale = sigHeight / sigImage.height;
@@ -209,9 +216,10 @@ async function processPDF(filePath, signers, outputPath) {
           height: sigHeight
         });
         
+        console.log(`✅ Drawn signature for ${signer.name}`);
         currentY -= (sigHeight + 10);
       } catch (err) {
-        console.log('⚠️ Signature image not found:', signer.signature_image);
+        console.error(`❌ Signature image failed for ${signer.name}:`, err.message);
         const fallbackText = '[SIGNATURE]';
         const textWidth = timesRegular.widthOfTextAtSize(fallbackText, TEXT_SIZE);
         lastPage.drawText(fallbackText, {
@@ -296,6 +304,7 @@ async function processImage(filePath, signers, outputPath) {
   
   try {
     const pdfDoc = await PDFDocument.create();
+    pdfDoc.registerFontkit(fontkit);  // Register fontkit here too
     const pageWidth = 595.28;
     const pageHeight = 841.89;
     
@@ -361,20 +370,13 @@ async function processImage(filePath, signers, outputPath) {
       timesBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     }
     
-    // Load text images
-    let verifiedTextImage, certifiedTextImage;
+    // Load "Attested" text image
+    let attestedTextImage;
     try {
-      const verifiedBytes = await fsp.readFile(path.join(sigPath, 'verified_text.png'));
-      verifiedTextImage = await pdfDoc.embedPng(verifiedBytes);
+      const attestedBytes = await fsp.readFile(path.join(sigPath, 'attested_text.png'));
+      attestedTextImage = await pdfDoc.embedPng(attestedBytes);
     } catch (err) {
-      console.log('verified_text.png not found');
-    }
-    
-    try {
-      const certifiedBytes = await fsp.readFile(path.join(sigPath, 'certified_text.png'));
-      certifiedTextImage = await pdfDoc.embedPng(certifiedBytes);
-    } catch (err) {
-      console.log('certified_text.png not found');
+      console.log('attested_text.png not found');
     }
     
     const blueColor = rgb(0.25, 0.25, 0.6);
@@ -397,23 +399,20 @@ async function processImage(filePath, signers, outputPath) {
       
       const centerX = x + (sigBoxWidth / 2);
       
-      // Draw text image
-      const isFirst = i === 0;
-      const textImage = isFirst ? verifiedTextImage : certifiedTextImage;
-      
-      if (textImage) {
+      // Draw "Attested" for ALL signers
+      if (attestedTextImage) {
         const textHeight = 18;
-        const textScale = textHeight / textImage.height;
-        const textWidth = textImage.width * textScale;
+        const textScale = textHeight / attestedTextImage.height;
+        const textWidth = attestedTextImage.width * textScale;
         
-        page.drawImage(textImage, {
+        page.drawImage(attestedTextImage, {
           x: centerX - (textWidth / 2),
           y: y,
           width: textWidth,
           height: textHeight
         });
       } else {
-        const text = isFirst ? 'Verified and found correct' : 'Certified';
+        const text = 'Attested';
         const textWidth = timesRegular.widthOfTextAtSize(text, TEXT_SIZE);
         page.drawText(text, {
           x: centerX - (textWidth / 2),
@@ -428,8 +427,15 @@ async function processImage(filePath, signers, outputPath) {
       
       // Draw signature
       try {
-        const sigBytes = await fsp.readFile(path.join(sigPath, signer.signature_image));
-        const sigImage = await pdfDoc.embedPng(sigBytes).catch(() => pdfDoc.embedJpg(sigBytes));
+        const sigFullPath = path.join(sigPath, signer.signature_image);
+        const sigBytes = await fsp.readFile(sigFullPath);
+        
+        let sigImage;
+        try {
+          sigImage = await pdfDoc.embedPng(sigBytes);
+        } catch (pngErr) {
+          sigImage = await pdfDoc.embedJpg(sigBytes);
+        }
         
         const sigHeight = 35;
         const sigScale = sigHeight / sigImage.height;
