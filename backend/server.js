@@ -69,15 +69,19 @@ dirs.forEach(dir => {
 // Set environment variable for other modules
 process.env.UPLOAD_DIR = uploadBaseDir;
 
-// Static files
-app.use('/certificates', express.static(path.join(uploadDir, 'certificates'), {
+// ==========================================
+// STATIC FILES - FIXED VARIABLE NAME
+// ==========================================
+// ❌ WRONG: uploadDir (undefined)
+// ✅ CORRECT: uploadBaseDir
+app.use('/certificates', express.static(path.join(uploadBaseDir, 'certificates'), {
   setHeaders: (res) => {
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', 'inline');
   }
 }));
 
-app.use('/verified', express.static(path.join(uploadDir, 'verified'), {
+app.use('/verified', express.static(path.join(uploadBaseDir, 'verified'), {
   setHeaders: (res, filePath) => {
     // Set appropriate content types
     if (filePath.endsWith('.pdf')) {
