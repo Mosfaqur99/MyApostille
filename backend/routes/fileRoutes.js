@@ -432,7 +432,7 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     console.log('✅ Certificate saved:', relativeCertPath);
 
     // ========== Step 4: Parse additional signers (OPTIONAL) ==========
-    let signersWithDates = [];
+    
     let signaturesData = [];
     
     if (additionalSigners) {
@@ -456,28 +456,55 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     }
 
     // ========== Step 5: ✅ Process ALL files (WITH OR WITHOUT SIGNERS) ==========
-    let reuploadedPaths = [];
-    
-    if (req.files && req.files.length > 0) {
-      const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
-      await ensureDirAsync(verifiedDir);
-      
-      for (const file of req.files) {
-        try {
-          console.log('🔍 Processing file:', file.originalname);
-          const processedPath = await processDocumentWithSignatures(
-            file.path,
-            signersWithDates,  // Empty array is fine - just won't draw signatures
-            certNumber
-          );
-          reuploadedPaths.push(processedPath);
-          console.log('✅ File processed:', processedPath);
-        } catch (procErr) {
-          console.error('⚠️ File processing failed (continuing):', file.originalname, procErr.message);
-        }
-      }
+   // Step 5: Process signatures on uploaded documents
+console.log('🔍 Step 5: Processing signatures...');
+let reuploadedPaths = [];
+
+
+// 1. Parse additional signers (OPTIONAL - files process regardless)
+let signersWithDates = [];
+if (additionalSigners) {
+  try {
+    const signerIds = JSON.parse(additionalSigners);
+    if (signerIds.length > 0) {
+      const signerIdsArray = signerIds.map(s => s.signerId);
+      const signersResult = await pool.query(
+        'SELECT * FROM additional_signers WHERE id = ANY($1)',
+        [signerIdsArray]
+      );
+      signersWithDates = signersResult.rows.map(signer => ({
+        ...signer,
+        signatureDate: signerIds.find(s => s.signerId === signer.id)?.date || new Date().toISOString().split('T')[0]
+      }));
+      signaturesData = signersWithDates;
     }
-    console.log('🔍 reuploadedPaths final:', reuploadedPaths);
+  } catch (e) {
+    console.warn('⚠️ Failed to parse additionalSigners:', e.message);
+  }
+}
+
+// 2. ✅ Process ALL uploaded files (WITH OR WITHOUT SIGNERS)
+if (req.files && req.files.length > 0) {
+  const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
+  await ensureDirAsync(verifiedDir);
+  
+  for (const file of req.files) {
+    console.log('🔍 Processing file:', file.originalname);
+    try {
+      // Process with signatures (empty signersWithDates = no signatures drawn, but file still processed)
+      const processedPath = await processDocumentWithSignatures(
+        file.path,
+        signersWithDates,  // Empty array is fine
+        certNumber
+      );
+      reuploadedPaths.push(processedPath);
+      console.log('✅ File processed:', processedPath);
+    } catch (procErr) {
+      console.error('⚠️ File processing failed (continuing):', file.originalname, procErr.message);
+    }
+  }
+}
+console.log('🔍 reuploadedPaths final:', reuploadedPaths);
 
     // ========== Step 6: Save to database ==========
     await pool.query(
