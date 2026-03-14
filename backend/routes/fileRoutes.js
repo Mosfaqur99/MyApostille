@@ -360,24 +360,28 @@ router.get('/verify/:certificateNumber', async (req, res) => {
     });
 
     // Send response matching frontend expectations
-    res.json({
+   // In GET /verify/:certificateNumber route, replace the response with:
+res.json({
   certificateNumber: upload.certificate_number,
   certificatePath: upload.certificate_pdf_path
     ? upload.certificate_pdf_path.replace(/^.*uploads[\\/]/, "uploads/")
     : null,
   certificateData: upload.certificate_data,
   
-  // ✅ FIXED: Handle both JSON string and array formats
+  // ✅ FIXED: Handle both JSON string and array, extract just filenames
   reuploadedFiles: (() => {
     if (!upload.reuploaded_file_paths) return [];
     try {
-      // Parse if string, otherwise use as-is
       const paths = typeof upload.reuploaded_file_paths === 'string'
         ? JSON.parse(upload.reuploaded_file_paths)
         : upload.reuploaded_file_paths;
       
       if (Array.isArray(paths)) {
-        return paths.map(p => p.replace(/^.*uploads[\\/]/, "uploads/"));
+        // Extract just filename: "uploads/verified/file.pdf" → "file.pdf"
+        return paths.map(p => {
+          const filename = p.split('/').pop()?.split('\\').pop();
+          return filename || null;
+        }).filter(Boolean);
       }
       return [];
     } catch (e) {
@@ -478,7 +482,6 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
       }
     }
 
-    // ========== Step 5: ✅ Process ALL files (WITH OR WITHOUT SIGNERS) ==========
    // Step 5: Process signatures on uploaded documents
 console.log('🔍 Step 5: Processing signatures...');
 let reuploadedPaths = [];
@@ -506,7 +509,7 @@ if (additionalSigners) {
   }
 }
 
-// 2. ✅ Process ALL uploaded files (WITH OR WITHOUT SIGNERS)
+// 2. ✅ Process ALL uploaded files (WITH OR WITHOUT SIGNERS) - MOVED OUTSIDE!
 if (req.files && req.files.length > 0) {
   const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
   await ensureDirAsync(verifiedDir);
@@ -528,36 +531,6 @@ if (req.files && req.files.length > 0) {
   }
 }
 console.log('🔍 reuploadedPaths final:', reuploadedPaths);
-
-    // ========== Step 6: Save to database ==========
-    await pool.query(
-      `UPDATE uploads SET
-        status = 'verified',
-        verified_by = $1,
-        verified_at = NOW(),
-        certificate_data = $2,
-        certificate_pdf_path = $3,
-        certificate_number = $4,
-        reuploaded_file_paths = $5,
-        additional_signatures_data = $6,
-        document_issuer = $7,
-        document_title = $8,
-        document_location = $9,
-        certificate_date = $10,
-        authority_name = $11
-       WHERE id = $12`,
-      [
-        req.user.id,
-        JSON.stringify(certificateData),
-        relativeCertPath,
-        certNumber,
-        JSON.stringify(reuploadedPaths),  // jsonb column
-        JSON.stringify(signaturesData),
-        documentIssuer, documentTitle, documentLocation, certificateDate, authorityName,
-        uploadId
-      ]
-    );
-    console.log('✅ Database updated');
 
     // ========== Step 7: Cleanup original files ==========
     if (upload.file_paths) {
