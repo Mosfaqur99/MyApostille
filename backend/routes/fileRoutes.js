@@ -191,101 +191,68 @@ router.get('/pending', verifyToken, authorizeRole('admin'), async (req, res) => 
 
 
 // backend/routes/fileRoutes.js
-router.get(
-  "/download-originals/:uploadId",
-  verifyToken,
-  authorizeRole("admin"),
-  async (req, res) => {
-    try {
-      const { uploadId } = req.params;
-      console.log("Processing download for uploadId:", uploadId);
+// backend/routes/fileRoutes.js
+router.get('/download-originals/:uploadId', verifyToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const { uploadId } = req.params;
+    console.log(`[Download] Starting for ID: ${uploadId}`);
 
-      const result = await pool.query(
-        "SELECT file_paths FROM uploads WHERE id = $1",
-        [uploadId]
-      );
+    const result = await pool.query('SELECT file_paths FROM uploads WHERE id = $1', [uploadId]);
+    if (result.rows.length === 0) return res.status(404).json({ message: "Record not found" });
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ message: "Record not found" });
+    let rawData = result.rows[0].file_paths;
+    let filePaths = [];
+
+    // FIX: Robust Parsing of the Database Data
+    if (Array.isArray(rawData)) {
+      filePaths = rawData;
+    } else if (typeof rawData === 'string') {
+      try {
+        filePaths = JSON.parse(rawData);
+        if (!Array.isArray(filePaths)) filePaths = [filePaths];
+      } catch (e) {
+        filePaths = [rawData];
       }
-
-      let filePaths = result.rows[0].file_paths;
-
-      console.log("RAW DB file_paths:", filePaths);
-
-      // Convert JSON string → array
-      if (typeof filePaths === "string") {
-        try {
-          filePaths = JSON.parse(filePaths);
-        } catch (err) {
-          filePaths = [filePaths];
-        }
-      }
-
-      // Ensure array
-      if (!Array.isArray(filePaths)) {
-        filePaths = [filePaths];
-      }
-
-      const zip = new AdmZip();
-      let fileCount = 0;
-
-      filePaths.forEach((file) => {
-        let relPath;
-
-        // Handle multiple formats safely
-        if (typeof file === "string") {
-          relPath = file;
-        } else if (typeof file === "object" && file !== null) {
-          relPath = file.path || file.file_path || file.url;
-        }
-
-        if (!relPath) {
-          console.warn("Invalid file path:", file);
-          return;
-        }
-
-        // Normalize slashes for Linux (Render)
-        const cleanPath = relPath.replace(/\\/g, "/");
-
-        // Absolute path from project root
-        const fullPath = path.join(process.cwd(), cleanPath);
-
-        console.log("Checking file:", fullPath);
-
-        if (fs.existsSync(fullPath)) {
-          zip.addLocalFile(fullPath);
-          fileCount++;
-          console.log("Added to ZIP:", fullPath);
-        } else {
-          console.warn("File missing on server:", fullPath);
-        }
-      });
-
-      if (fileCount === 0) {
-        return res.status(404).json({
-          message: "Files not found on server storage",
-        });
-      }
-
-      const zipBuffer = zip.toBuffer();
-
-      res.set({
-        "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename=docs_${uploadId}.zip`,
-        "Content-Length": zipBuffer.length,
-      });
-
-      return res.send(zipBuffer);
-    } catch (err) {
-      console.error("SERVER DOWNLOAD ERROR:", err);
-      res.status(500).json({
-        message: "Internal Server Error",
-        error: err.message,
-      });
     }
+
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    let fileCount = 0;
+
+    filePaths.forEach(relPath => {
+      // FIX: Ensure relPath is a string before calling .replace
+      if (!relPath || typeof relPath !== 'string') {
+        console.warn(`[Download] Skipping invalid path entry:`, relPath);
+        return;
+      }
+      
+      const cleanPath = relPath.replace(/\\/g, '/'); 
+      const fullPath = path.join(process.cwd(), cleanPath);
+      
+      if (fs.existsSync(fullPath)) {
+        zip.addLocalFile(fullPath);
+        fileCount++;
+      }
+    });
+
+    if (fileCount === 0) {
+      return res.status(404).json({ message: "Physical files not found on server storage." });
+    }
+
+    const zipBuffer = zip.toBuffer();
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename=docs_${uploadId}.zip`,
+      'Content-Length': zipBuffer.length
+    });
+    
+    return res.send(zipBuffer);
+
+  } catch (err) {
+    console.error('SERVER ERROR 500:', err);
+    res.status(500).json({ error: "Internal Server Error", details: err.message });
   }
-);
+});
 
 
 // Get completed uploads (admin)
