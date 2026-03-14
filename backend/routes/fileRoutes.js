@@ -191,70 +191,102 @@ router.get('/pending', verifyToken, authorizeRole('admin'), async (req, res) => 
 
 
 // backend/routes/fileRoutes.js
-router.get('/download-originals/:uploadId', verifyToken, authorizeRole('admin'), async (req, res) => {
-  try {
-    const { uploadId } = req.params;
-    console.log(`[Download] Starting for ID: ${uploadId}`);
-
-    // 1. Check if adm-zip is installed
-    let AdmZip;
+router.get(
+  "/download-originals/:uploadId",
+  verifyToken,
+  authorizeRole("admin"),
+  async (req, res) => {
     try {
-      AdmZip = require('adm-zip');
-    } catch (e) {
-      console.error("CRITICAL: adm-zip is not installed. Run 'npm install adm-zip'");
-      return res.status(500).json({ message: "Server missing ZIP utility" });
-    }
+      const { uploadId } = req.params;
+      console.log("Processing download for uploadId:", uploadId);
 
-    const result = await pool.query('SELECT file_paths FROM uploads WHERE id = $1', [uploadId]);
-    if (result.rows.length === 0) return res.status(404).json({ message: "Record not found" });
+      const result = await pool.query(
+        "SELECT file_paths FROM uploads WHERE id = $1",
+        [uploadId]
+      );
 
-    let filePaths = result.rows[0].file_paths;
-    
-    // Convert DB string/JSON to Array
-    if (typeof filePaths === 'string') {
-      try { filePaths = JSON.parse(filePaths); } catch (e) { filePaths = [filePaths]; }
-    }
-    if (!Array.isArray(filePaths)) filePaths = [filePaths];
-
-    // 2. Filter valid files and resolve paths
-    const zip = new AdmZip();
-    let fileCount = 0;
-
-    filePaths.forEach(relPath => {
-      if (!relPath) return;
-      
-      // Render Fix: Ensure path is absolute from the root of the project
-      const cleanPath = relPath.replace(/\\/g, '/'); // Convert Windows slashes to Linux
-      const fullPath = path.join(process.cwd(), cleanPath);
-      
-      if (fs.existsSync(fullPath)) {
-        zip.addLocalFile(fullPath);
-        fileCount++;
-        console.log(`[Download] Added to ZIP: ${fullPath}`);
-      } else {
-        console.warn(`[Download] File missing on disk: ${fullPath}`);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "Record not found" });
       }
-    });
 
-    if (fileCount === 0) {
-      return res.status(404).json({ message: "Files not found on server storage." });
+      let filePaths = result.rows[0].file_paths;
+
+      console.log("RAW DB file_paths:", filePaths);
+
+      // Convert JSON string → array
+      if (typeof filePaths === "string") {
+        try {
+          filePaths = JSON.parse(filePaths);
+        } catch (err) {
+          filePaths = [filePaths];
+        }
+      }
+
+      // Ensure array
+      if (!Array.isArray(filePaths)) {
+        filePaths = [filePaths];
+      }
+
+      const zip = new AdmZip();
+      let fileCount = 0;
+
+      filePaths.forEach((file) => {
+        let relPath;
+
+        // Handle multiple formats safely
+        if (typeof file === "string") {
+          relPath = file;
+        } else if (typeof file === "object" && file !== null) {
+          relPath = file.path || file.file_path || file.url;
+        }
+
+        if (!relPath) {
+          console.warn("Invalid file path:", file);
+          return;
+        }
+
+        // Normalize slashes for Linux (Render)
+        const cleanPath = relPath.replace(/\\/g, "/");
+
+        // Absolute path from project root
+        const fullPath = path.join(process.cwd(), cleanPath);
+
+        console.log("Checking file:", fullPath);
+
+        if (fs.existsSync(fullPath)) {
+          zip.addLocalFile(fullPath);
+          fileCount++;
+          console.log("Added to ZIP:", fullPath);
+        } else {
+          console.warn("File missing on server:", fullPath);
+        }
+      });
+
+      if (fileCount === 0) {
+        return res.status(404).json({
+          message: "Files not found on server storage",
+        });
+      }
+
+      const zipBuffer = zip.toBuffer();
+
+      res.set({
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename=docs_${uploadId}.zip`,
+        "Content-Length": zipBuffer.length,
+      });
+
+      return res.send(zipBuffer);
+    } catch (err) {
+      console.error("SERVER DOWNLOAD ERROR:", err);
+      res.status(500).json({
+        message: "Internal Server Error",
+        error: err.message,
+      });
     }
-
-    // 3. Send the ZIP
-    const zipBuffer = zip.toBuffer();
-    res.set({
-      'Content-Type': 'application/zip',
-      'Content-Disposition': `attachment; filename=docs_${uploadId}.zip`,
-      'Content-Length': zipBuffer.length
-    });
-    
-    return res.send(zipBuffer);
-
-  } catch (err) {
-    console.error('SERVER ERROR 500:', err);
-    res.status(500).json({ error: "Internal Server Error", details: err.message });
   }
-});
+);
+
 
 // Get completed uploads (admin)
 router.get('/completed', verifyToken, authorizeRole('admin'), async (req, res) => {
