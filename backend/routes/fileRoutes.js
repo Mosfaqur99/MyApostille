@@ -296,46 +296,53 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 // Get verification details (public) - Updated for path consistency
 // backend/routes/fileRoutes.js
 
+// backend/routes/fileRoutes.js
+
 router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
-    console.log('🔍 Verification request for:', certificateNumber);
+    console.log('🔍 Fetching verified data for:', certificateNumber);
 
-    const uploads = await pool.query(
+    // 1. Fetch the data from the DB
+    const result = await pool.query(
       `SELECT uploads.*, users.name as user_name, verifier.name as verified_by_name
        FROM uploads 
        JOIN users ON uploads.user_id = users.id
        LEFT JOIN users verifier ON uploads.verified_by = verifier.id
-       WHERE uploads.certificate_number = $1 AND uploads.status = $2`,
-      [certificateNumber, 'verified']
+       WHERE uploads.certificate_number = $1 AND uploads.status = 'verified'`,
+      [certificateNumber]
     );
     
-    if (uploads.rows.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Certificate not found' });
     }
     
-    const upload = uploads.rows[0];
+    const upload = result.rows[0];
 
-    // This helper extracts the 'path' whether the DB has strings or objects
+    // 2. Helper to clean paths from the DB (Handles both strings and [{path: '...'}] objects)
     const cleanPaths = (data) => {
       if (!data) return [];
-      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-      const array = Array.isArray(parsed) ? parsed : [parsed];
+      // Parse if string, otherwise use as is
+      let array = typeof data === 'string' ? JSON.parse(data) : data;
+      if (!Array.isArray(array)) array = [array];
       
       return array.map(entry => {
+        // Extract the string path if it's an object
         const p = (entry && typeof entry === 'object') ? entry.path : entry;
-        return p ? p.replace(/\\/g, '/').replace(/^.*uploads\//, "uploads/") : null;
+        if (!p) return null;
+        // Clean Windows slashes and ensure it starts with 'uploads/'
+        return p.replace(/\\/g, '/').replace(/^.*uploads\//, "uploads/");
       }).filter(Boolean);
     };
     
-    // IMPORTANT: Matching the nesting the frontend expects
+    // 3. Send back exactly what the frontend needs
     res.json({
       certificateNumber: upload.certificate_number,
       certificatePath: upload.certificate_pdf_path 
         ? upload.certificate_pdf_path.replace(/\\/g, '/').replace(/^.*uploads\//, "uploads/") 
         : null,
-      // Wrap verified_paths inside an 'upload' object
       upload: {
+        // Logic: Use verified_paths if available, otherwise check reuploaded_file_paths
         verified_paths: cleanPaths(upload.verified_paths || upload.reuploaded_file_paths),
         file_type: upload.file_type
       },
@@ -343,12 +350,12 @@ router.get('/verify/:certificateNumber', async (req, res) => {
       userName: upload.user_name,
       verifiedBy: upload.verified_by_name
     });
+
   } catch (err) {
     console.error('Error fetching verification:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
-
 // CRITICAL: Verify endpoint - SIMPLIFIED AND FIXED
 // REPLACE the entire verify route with this diagnostic version:
 

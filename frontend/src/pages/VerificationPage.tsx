@@ -13,276 +13,218 @@ const VerificationPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [certificateUrl, setCertificateUrl] = useState<string | null>(null);
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<"certificate" | "documents">(
-    "certificate"
-  );
+  const [activeTab, setActiveTab] = useState<"certificate" | "documents">("certificate");
 
   useEffect(() => {
-    let isMounted = true;
+    const verifyCertificate = async () => {
+      try {
+        setLoading(true);
+        const response = await api.get(`/files/verify/${certificateNumber}`);
+        const data = response.data;
+        
+        setVerificationData(data);
 
-    // frontend/src/pages/VerificationPage.tsx
+        const baseURL = "https://bangladesh-apostille-api.onrender.com";
 
-// Inside VerificationPage.tsx
-const verifyCertificate = async () => {
-  try {
-    setLoading(true);
-    const response = await api.get(`/files/verify/${certificateNumber}`);
-    setVerificationData(response.data);
-
-    // 1. Process Certificate URL
-    if (response.data.certificate_path) {
-      const certPath = response.data.certificate_path.replace(/\\/g, '/');
-      setCertificateUrl(`https://bangladesh-apostille-api.onrender.com/${certPath}`);
-    }
-
-    // 2. Process Verified Documents (The Fix)
-    if (response.data.upload && response.data.upload.verified_paths) {
-      let vPaths = response.data.upload.verified_paths;
-
-      // Handle cases where DB returns a JSON string
-      if (typeof vPaths === 'string' && vPaths.startsWith('[')) {
-        try {
-          vPaths = JSON.parse(vPaths);
-        } catch (e) {
-          vPaths = [vPaths];
+        // 1. Map the main Certificate PDF URL
+        if (data.certificatePath) {
+          setCertificateUrl(`${baseURL}/${data.certificatePath.replace(/^\/+/, '')}`);
         }
-      } else if (!Array.isArray(vPaths)) {
-        vPaths = [vPaths];
+
+        // 2. Map the Verified Documents (Handling the upload.verified_paths nesting)
+        if (data.upload && data.upload.verified_paths) {
+          const urls = data.upload.verified_paths.map((p: string) => {
+            return `${baseURL}/${p.replace(/^\/+/, '')}`;
+          });
+          setProcessedFiles(urls);
+        }
+        
+        setLoading(false);
+      } catch (err: any) {
+        console.error("Verification failed", err);
+        setError(err.response?.data?.message || "যাচাইকরণ ব্যর্থ হয়েছে");
+        setLoading(false);
       }
-
-      const baseURL = "https://bangladesh-apostille-api.onrender.com";
-
-      const urls = vPaths.map((entry: any) => {
-        // EXTRACTION FIX: Get .path if it's an object, otherwise use as string
-        const pathStr = (entry && typeof entry === 'object') ? entry.path : entry;
-        
-        if (!pathStr || typeof pathStr !== 'string') return null;
-
-        // Clean path: change \ to / and remove starting slash
-        const cleanPath = pathStr.replace(/\\/g, '/').replace(/^\/+/, '');
-        
-        return `${baseURL}/${cleanPath}`;
-      }).filter(Boolean) as string[];
-
-      setProcessedFiles(urls);
-    }
-    
-    setLoading(false);
-  } catch (err: any) {
-    console.error("Verification failed", err);
-    setError(err.response?.data?.message || "যাচাইকরণ ব্যর্থ হয়েছে");
-    setLoading(false);
-  }
-};
+    };
 
     verifyCertificate();
-    return () => {
-      isMounted = false;
-    };
   }, [certificateNumber]);
 
   const handleDownloadCertificate = async () => {
     if (!certificateUrl) return;
-
     try {
       const response = await fetch(certificateUrl);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-
       const link = document.createElement("a");
       link.href = url;
       link.download = `e-APOSTILLE-${certificateNumber}.pdf`;
-
       document.body.appendChild(link);
       link.click();
-
       link.remove();
-      window.URL.revokeObjectURL(url);
     } catch {
-      alert("ডাউনলোড ব্যর্থ হয়েছে। আবার চেষ্টা করুন।");
+      alert("ডাউনলোড ব্যর্থ হয়েছে।");
     }
   };
 
+  /**
+   * PDF Viewer component for the main Certificate tab
+   */
   const PDFViewer = ({ url }: { url: string }) => (
-    <div className="w-full border rounded-lg overflow-hidden bg-gray-100">
+    <div className="w-full border rounded-lg overflow-hidden bg-white shadow-inner">
       <iframe
-        src={url}
-        title="PDF Viewer"
-        className="w-full h-[65vh] md:h-[75vh]"
+        src={`${url}#toolbar=0&navpanes=0&view=FitH`}
+        title="Certificate Viewer"
+        className="w-full h-[60vh] md:h-[75vh]"
       />
     </div>
   );
 
-  const ImageViewer = ({ url }: { url: string }) => {
-    const ext = url.split(".").pop()?.toLowerCase();
+  /**
+   * DOCUMENT VIEWER: Fixed for Mobile
+   * Uses <object> instead of <iframe> to prevent auto-opening new tabs on phones
+   */
+  const DocumentViewer = ({ url }: { url: string }) => {
+    const isPdf = url.toLowerCase().endsWith('.pdf');
 
-    if (ext === "pdf") {
-      return <PDFViewer url={url} />;
+    if (isPdf) {
+      return (
+        <div className="w-full bg-gray-100 rounded-lg overflow-hidden border">
+          <object
+            data={`${url}#view=FitH`}
+            type="application/pdf"
+            className="w-full h-[500px] md:h-[70vh]"
+          >
+            {/* Fallback for mobile browsers that can't embed */}
+            <div className="p-8 text-center bg-white">
+              <p className="text-gray-600 mb-4">ডকুমেন্টটি সরাসরি দেখা যাচ্ছে না</p>
+              <a 
+                href={url} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="inline-block bg-blue-600 text-white px-6 py-2 rounded font-bold"
+              >
+                এখানে ক্লিক করে দেখুন
+              </a>
+            </div>
+          </object>
+        </div>
+      );
     }
 
     return (
-      <div className="flex justify-center bg-gray-100 rounded-lg overflow-hidden">
+      <div className="flex justify-center bg-gray-200 rounded-lg overflow-hidden">
         <img
           src={url}
           alt="Verified Document"
-          className="max-w-full max-h-[70vh] object-contain"
+          className="max-w-full h-auto object-contain shadow-md"
         />
       </div>
     );
   };
 
-  if (loading)
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin h-16 w-16 border-b-2 border-green-600 rounded-full"></div>
-      </div>
-    );
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="animate-spin h-12 w-12 border-4 border-green-600 border-t-transparent rounded-full"></div>
+    </div>
+  );
 
-  if (error)
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-lg shadow text-center">
-          <h2 className="text-2xl font-bold text-red-600 mb-2">
-            যাচাই ব্যর্থ
-          </h2>
-          <p className="text-gray-600 mb-6">{error}</p>
-
-          <button
-            onClick={() => navigate("/")}
-            className="bg-green-600 text-white px-6 py-2 rounded-lg"
-          >
-            হোম পেজে ফিরে যান
-          </button>
-        </div>
+  if (error) return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-xl shadow-lg text-center max-w-sm">
+        <div className="text-red-500 text-5xl mb-4">⚠️</div>
+        <h2 className="text-xl font-bold mb-2">যাচাই ব্যর্থ</h2>
+        <p className="text-gray-600 mb-6">{error}</p>
+        <button onClick={() => navigate("/")} className="w-full bg-green-600 text-white py-2 rounded-lg">হোম পেজে ফিরে যান</button>
       </div>
-    );
+    </div>
+  );
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="min-h-screen flex flex-col bg-gray-100">
       <Header />
-
-      <main className="flex-grow container mx-auto px-4 py-6">
-        <div className="max-w-5xl mx-auto">
-          {/* Certificate info */}
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h1 className="text-2xl font-bold text-green-700">
-              e-APOSTILLE যাচাইকৃত
-            </h1>
-
-            <p className="mt-2 text-gray-600">
-              নম্বর:{" "}
-              <span className="font-bold font-mono">
-                {certificateNumber}
-              </span>
-            </p>
-
-            <div className="grid md:grid-cols-3 gap-4 mt-6 text-sm">
+      <main className="flex-grow container mx-auto px-4 py-8">
+        <div className="max-w-4xl mx-auto">
+          
+          {/* Top Header Card */}
+          <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-green-100">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
               <div>
-                <p className="text-gray-400">আবেদনকারী</p>
-                <p className="font-semibold">
-                  {verificationData?.userName || "N/A"}
-                </p>
+                <h1 className="text-2xl font-black text-green-800">e-APOSTILLE যাচাইকৃত</h1>
+                <p className="text-gray-500 font-mono mt-1">নম্বর: {certificateNumber}</p>
               </div>
-
-              <div>
-                <p className="text-gray-400">যাচাইকারী কর্তৃপক্ষ</p>
-                <p className="font-semibold">
-                  Ministry of Foreign Affairs
-                </p>
+              <div className="mt-4 md:mt-0 text-left md:text-right">
+                <p className="text-xs text-gray-400 uppercase">যাচাইয়ের তারিখ</p>
+                <p className="font-bold">{verificationData?.verifiedAt ? new Date(verificationData.verifiedAt).toLocaleDateString('bn-BD') : 'N/A'}</p>
               </div>
-
-              <div>
-                <p className="text-gray-400">যাচাইয়ের তারিখ</p>
-                <p className="font-semibold">
-                  {verificationData?.verifiedAt
-                    ? new Date(
-                        verificationData.verifiedAt
-                      ).toLocaleDateString("bn-BD")
-                    : "N/A"}
-                </p>
-              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-gray-100">
+               <div>
+                 <p className="text-xs text-gray-400">আবেদনকারী</p>
+                 <p className="font-medium text-gray-800">{verificationData?.userName || 'N/A'}</p>
+               </div>
+               <div>
+                 <p className="text-xs text-gray-400">যাচাইকারী কর্তৃপক্ষ</p>
+                 <p className="font-medium text-gray-800">Ministry of Foreign Affairs</p>
+               </div>
             </div>
           </div>
 
-          {/* Tabs */}
-          <div className="bg-white rounded-lg shadow-md">
-            <div className="flex border-b">
+          {/* Navigation Tabs */}
+          <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+            <div className="flex bg-gray-50 p-1">
               <button
                 onClick={() => setActiveTab("certificate")}
-                className={`flex-1 py-4 font-bold ${
-                  activeTab === "certificate"
-                    ? "border-b-4 border-green-600 text-green-700"
-                    : "text-gray-500"
-                }`}
+                className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-all ${activeTab === "certificate" ? "bg-white shadow-sm text-green-700" : "text-gray-500"}`}
               >
-                📜 সার্টিফিকেট দেখুন
+                📜 সার্টিফিকেট
               </button>
-
               <button
                 onClick={() => setActiveTab("documents")}
-                className={`flex-1 py-4 font-bold ${
-                  activeTab === "documents"
-                    ? "border-b-4 border-blue-600 text-blue-700"
-                    : "text-gray-500"
-                }`}
+                className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-all ${activeTab === "documents" ? "bg-white shadow-sm text-blue-700" : "text-gray-500"}`}
               >
                 📂 মূল নথি ({processedFiles.length})
               </button>
             </div>
 
-            <div className="p-6">
+            <div className="p-4 md:p-6">
               {activeTab === "certificate" ? (
-                <>
+                <div className="space-y-6">
                   {certificateUrl ? (
                     <>
                       <PDFViewer url={certificateUrl} />
-
-                      <div className="text-center mt-6">
-                        <button
-                          onClick={handleDownloadCertificate}
-                          className="bg-green-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-green-700"
-                        >
-                          📥 ডাউনলোড সার্টিফিকেট
-                        </button>
-                      </div>
+                      <button onClick={handleDownloadCertificate} className="w-full bg-green-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-green-700 transition-colors shadow-lg shadow-green-100">
+                        📥 সার্টিফিকেট ডাউনলোড করুন
+                      </button>
                     </>
                   ) : (
-                    <p className="text-center py-20 text-gray-400">
-                      সার্টিফিকেট পাওয়া যায়নি
-                    </p>
+                    <div className="py-20 text-center text-gray-400">সার্টিফিকেট লোড করা সম্ভব হচ্ছে না</div>
                   )}
-                </>
+                </div>
               ) : (
-                <div className="space-y-6">
-                  {processedFiles.map((url, i) => (
-                    <div
-                      key={i}
-                      className="bg-gray-50 p-4 rounded-xl border"
-                    >
-                      <p className="text-sm font-bold text-gray-500 mb-3">
-                        যাচাইকৃত নথি {i + 1}
-                      </p>
-
-                      <ImageViewer url={url} />
+                <div className="space-y-8">
+                  {processedFiles.length > 0 ? processedFiles.map((url, i) => (
+                    <div key={i} className="space-y-3">
+                      <div className="flex items-center justify-between px-1">
+                         <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">নথি {i + 1}</span>
+                         <a href={url} download className="text-blue-600 text-xs font-bold">ডাউনলোড</a>
+                      </div>
+                      <DocumentViewer url={url} />
                     </div>
-                  ))}
+                  )) : (
+                    <div className="py-20 text-center text-gray-400">কোনো মূল নথি পাওয়া যায়নি</div>
+                  )}
                 </div>
               )}
             </div>
           </div>
 
-          {/* Back button */}
-          <div className="mt-8 text-center">
-            <button
-              onClick={() => navigate(-1)}
-              className="bg-white border px-6 py-3 rounded-lg hover:bg-gray-100"
-            >
-              ← আগের পেজে ফিরে যান
-            </button>
-          </div>
+          <button onClick={() => navigate(-1)} className="mt-8 w-full py-3 text-gray-500 font-medium">
+            ← ফিরে যান
+          </button>
         </div>
       </main>
-
       <Footer />
     </div>
   );
