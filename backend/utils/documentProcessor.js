@@ -1,3 +1,4 @@
+
 // backend/utils/documentProcessor.js
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const fontkit = require('@pdf-lib/fontkit');  // ADD THIS IMPORT
@@ -135,20 +136,20 @@ async function processPDF(filePath, signers, outputPath) {
     }
     
     const numSigners = signers.length;
-    const sigBoxHeight = 130;
-    const sigBoxWidth = 260;
+    const sigBoxHeight = 110;  // REDUCED from 130
+    const sigBoxWidth = 240;   // REDUCED from 260
     
     const cols = numSigners === 1 ? 1 : 2;
     const rows = Math.ceil(numSigners / cols);
-    const rowGap = 25;
-    const bottomMargin = 30;
+    const rowGap = 20;         // REDUCED from 25
+    const bottomMargin = 25;   // REDUCED from 30
     
     const totalSigHeight = (rows * sigBoxHeight) + ((rows - 1) * rowGap);
-    const startY = bottomMargin + totalSigHeight - 20;
+    const startY = bottomMargin + totalSigHeight - 15;  // Adjusted
     
     const blueColor = rgb(0.25, 0.25, 0.6);
-    const TEXT_SIZE = 10;
-    const colGap = 30;
+    const TEXT_SIZE = 8;       // REDUCED from 10
+    const colGap = 25;         // REDUCED from 30
     
     // Draw signatures in grid
     for (let i = 0; i < numSigners; i++) {
@@ -159,13 +160,13 @@ async function processPDF(filePath, signers, outputPath) {
       const totalGridWidth = cols * sigBoxWidth + (cols - 1) * colGap;
       const startX = (width - totalGridWidth) / 2;
       const x = startX + (col * (sigBoxWidth + colGap));
-      const y = startY - 20 - (row * (sigBoxHeight + rowGap));
+      const y = startY - 15 - (row * (sigBoxHeight + rowGap));  // Adjusted
       
       const centerX = x + (sigBoxWidth / 2);
       
       // Draw "Attested" text/image for ALL signers (replaces verified/certified)
       if (attestedTextImage) {
-        const textHeight = 18;
+        const textHeight = 14;     // REDUCED from 18
         const textScale = textHeight / attestedTextImage.height;
         const textWidth = attestedTextImage.width * textScale;
         
@@ -188,7 +189,7 @@ async function processPDF(filePath, signers, outputPath) {
         });
       }
       
-      let currentY = y - 22;
+      let currentY = y - 18;     // REDUCED from 22
       
       // Draw signature image
       try {
@@ -205,7 +206,7 @@ async function processPDF(filePath, signers, outputPath) {
           sigImage = await pdfDoc.embedJpg(sigBytes);
         }
         
-        const sigHeight = 35;
+        const sigHeight = 28;      // REDUCED from 35
         const sigScale = sigHeight / sigImage.height;
         const sigWidth = sigImage.width * sigScale;
         
@@ -217,19 +218,19 @@ async function processPDF(filePath, signers, outputPath) {
         });
         
         console.log(`✅ Drawn signature for ${signer.name}`);
-        currentY -= (sigHeight + 10);
+        currentY -= (sigHeight + 8);  // REDUCED from 10
       } catch (err) {
         console.error(`❌ Signature image failed for ${signer.name}:`, err.message);
         const fallbackText = '[SIGNATURE]';
         const textWidth = timesRegular.widthOfTextAtSize(fallbackText, TEXT_SIZE);
         lastPage.drawText(fallbackText, {
           x: centerX - (textWidth / 2),
-          y: currentY - 12,
+          y: currentY - 10,  // REDUCED from 12
           size: TEXT_SIZE,
           font: timesRegular,
           color: blueColor
         });
-        currentY -= 24;
+        currentY -= 20;  // REDUCED from 24
       }
       
       // Draw date
@@ -242,7 +243,7 @@ async function processPDF(filePath, signers, outputPath) {
         font: timesRegular,
         color: blueColor
       });
-      currentY -= 12;
+      currentY -= 10;  // REDUCED from 12
       
       // Draw name (bold)
       const nameWidth = timesBold.widthOfTextAtSize(signer.name, TEXT_SIZE);
@@ -253,7 +254,7 @@ async function processPDF(filePath, signers, outputPath) {
         font: timesBold,
         color: blueColor
       });
-      currentY -= 11;
+      currentY -= 9;   // REDUCED from 11
       
       // Draw designation
       const desigWidth = timesRegular.widthOfTextAtSize(signer.designation, TEXT_SIZE);
@@ -264,7 +265,7 @@ async function processPDF(filePath, signers, outputPath) {
         font: timesRegular,
         color: blueColor
       });
-      currentY -= 11;
+      currentY -= 9;   // REDUCED from 11
       
       // Draw organization
       const orgText = signer.organization;
@@ -333,13 +334,13 @@ async function processImage(filePath, signers, outputPath) {
     
     // Calculate signature section
     const numSigners = signers.length;
-    const sigBoxHeight = 130;
-    const sigBoxWidth = 260;
+    const sigBoxHeight = 110;  // REDUCED from 130
+    const sigBoxWidth = 240;   // REDUCED from 260
     const rows = Math.ceil(numSigners / 2);
-    const rowGap = 25;
-    const sigSectionHeight = (rows * sigBoxHeight) + ((rows - 1) * rowGap) + 20;
+    const rowGap = 20;         // REDUCED from 25
+    const sigSectionHeight = (rows * sigBoxHeight) + ((rows - 1) * rowGap) + 15;  // Adjusted
     
-    const totalHeight = imgHeight + sigSectionHeight + 20;
+    const totalHeight = imgHeight + sigSectionHeight + 15;  // Adjusted
     const finalPageHeight = Math.max(pageHeight, totalHeight);
     
     const page = pdfDoc.addPage([pageWidth, finalPageHeight]);
@@ -347,7 +348,7 @@ async function processImage(filePath, signers, outputPath) {
     // Draw image at top
     page.drawImage(embeddedImage, {
       x: margin,
-      y: finalPageHeight - imgHeight - 10,
+      y: finalPageHeight - imgHeight - 8,  // Adjusted
       width: imgWidth,
       height: imgHeight
     });
@@ -380,11 +381,11 @@ async function processImage(filePath, signers, outputPath) {
     }
     
     const blueColor = rgb(0.25, 0.25, 0.6);
-    const TEXT_SIZE = 8;
-    const colGap = 30;
+    const TEXT_SIZE = 7;       // REDUCED from 8
+    const colGap = 25;         // REDUCED from 30
     
     // Draw signatures
-    const sigStartY = finalPageHeight - imgHeight - 15;
+    const sigStartY = finalPageHeight - imgHeight - 12;  // Adjusted
     const cols = numSigners === 1 ? 1 : 2;
     
     for (let i = 0; i < numSigners; i++) {
@@ -401,7 +402,7 @@ async function processImage(filePath, signers, outputPath) {
       
       // Draw "Attested" for ALL signers
       if (attestedTextImage) {
-        const textHeight = 18;
+        const textHeight = 12;     // REDUCED from 18
         const textScale = textHeight / attestedTextImage.height;
         const textWidth = attestedTextImage.width * textScale;
         
@@ -423,7 +424,7 @@ async function processImage(filePath, signers, outputPath) {
         });
       }
       
-      let currentY = y - 22;
+      let currentY = y - 16;     // REDUCED from 22
       
       // Draw signature
       try {
@@ -437,7 +438,7 @@ async function processImage(filePath, signers, outputPath) {
           sigImage = await pdfDoc.embedJpg(sigBytes);
         }
         
-        const sigHeight = 35;
+        const sigHeight = 24;      // REDUCED from 35
         const sigScale = sigHeight / sigImage.height;
         const sigWidth = sigImage.width * sigScale;
         
@@ -448,19 +449,19 @@ async function processImage(filePath, signers, outputPath) {
           height: sigHeight
         });
         
-        currentY -= (sigHeight + 10);
+        currentY -= (sigHeight + 6);  // REDUCED from 10
       } catch (err) {
         console.log('Signature not found:', signer.signature_image);
         const fallbackText = '[SIGNATURE]';
         const textWidth = timesRegular.widthOfTextAtSize(fallbackText, TEXT_SIZE);
         page.drawText(fallbackText, {
           x: centerX - (textWidth / 2),
-          y: currentY - 12,
+          y: currentY - 8,  // REDUCED from 12
           size: TEXT_SIZE,
           font: timesRegular,
           color: blueColor
         });
-        currentY -= 24;
+        currentY -= 16;  // REDUCED from 24
       }
       
       // Draw date
@@ -472,7 +473,7 @@ async function processImage(filePath, signers, outputPath) {
         font: timesRegular,
         color: blueColor
       });
-      currentY -= 12;
+      currentY -= 9;   // REDUCED from 12
       
       // Draw name (bold)
       const nameWidth = timesBold.widthOfTextAtSize(signer.name, TEXT_SIZE);
@@ -483,7 +484,7 @@ async function processImage(filePath, signers, outputPath) {
         font: timesBold,
         color: blueColor
       });
-      currentY -= 11;
+      currentY -= 8;   // REDUCED from 11
       
       // Draw designation
       const desigWidth = timesRegular.widthOfTextAtSize(signer.designation, TEXT_SIZE);
@@ -494,7 +495,7 @@ async function processImage(filePath, signers, outputPath) {
         font: timesRegular,
         color: blueColor
       });
-      currentY -= 11;
+      currentY -= 8;   // REDUCED from 11
       
       // Draw organization
       const orgText = signer.organization;
@@ -518,7 +519,7 @@ async function processImage(filePath, signers, outputPath) {
     }
     
     const pdfBytes = await pdfDoc.save();
-    const finalOutputPath = outputPath.replace(/\.(jpg|jpeg|png)$/i, '.pdf');
+    const finalOutputPath = outputPath.replace(/\\.(jpg|jpeg|png)$/i, '.pdf');
     await fsp.writeFile(finalOutputPath, pdfBytes);
     
     console.log('✅ Image processed and saved:', finalOutputPath);
