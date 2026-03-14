@@ -1,534 +1,405 @@
-
 // backend/utils/documentProcessor.js
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
-const fontkit = require('@pdf-lib/fontkit');  // ADD THIS IMPORT
-const fs = require('fs');  // KEEP full fs module
-const fsp = fs.promises;  // Separate promises reference
+const fontkit = require('@pdf-lib/fontkit');
+const fs = require('fs');
+const fsp = fs.promises;
 const path = require('path');
 
-// Helper function to format date as "08 Feb 2026"
+// Helper function to format dates
 function formatSignatureDate(dateString) {
-  try {
     const date = new Date(dateString);
-    if (isNaN(date.getTime())) return dateString;
-    
-    const day = String(date.getDate()).padStart(2, '0');
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const month = monthNames[date.getMonth()];
+    const day = date.getDate();
+    const month = date.toLocaleString('default', { month: 'long' });
     const year = date.getFullYear();
-    
     return `${day} ${month} ${year}`;
-  } catch (e) {
-    return dateString;
-  }
 }
 
+// Helper function to get output directory
 function getOutputDir() {
-  return process.env.UPLOAD_DIR 
-    ? path.join(process.env.UPLOAD_DIR, 'verified')
-    : path.join(__dirname, '..', 'uploads', 'verified');
-}
-
-function getAssetsPath() {
-  const possiblePaths = [
-    path.join(__dirname, '..', 'assets'),
-    path.join(__dirname, '..', '..', 'assets'),
-    path.join('/opt/render/project/src', 'backend', 'assets'),
-    path.join(process.cwd(), 'backend', 'assets'),
-    path.join(process.cwd(), 'assets')
-  ];
-  
-  for (const testPath of possiblePaths) {
-    if (fs.existsSync(testPath)) {
-      return testPath;
-    }
-  }
-  return possiblePaths[0];
-}
-
-async function processDocumentWithSignatures(filePath, signers, certNumber) {
-  console.log('🔍 processDocumentWithSignatures called');
-  console.log('🔍 filePath:', filePath);
-  console.log('🔍 signers:', signers?.length);
-  console.log('🔍 certNumber:', certNumber);
-  
-  try {
-    const ext = path.extname(filePath).toLowerCase();
-    const filename = path.basename(filePath, ext);
-    const outputDir = getOutputDir();
-    
-    console.log('🔍 outputDir:', outputDir);
-    
-    // Ensure directory exists (use sync version)
+    const outputDir = path.join(__dirname, '..', 'uploads', 'verified');
     if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-      console.log('🔍 Created output directory');
+        fs.mkdirSync(outputDir, { recursive: true });
     }
-    
-    const outputPath = path.join(outputDir, `${filename}_verified${ext}`);
-    console.log('🔍 outputPath:', outputPath);
-    
-    // Format dates for all signers
-    const formattedSigners = signers.map(signer => ({
-      ...signer,
-      signatureDate: formatSignatureDate(signer.signatureDate)
-    }));
-    
-    if (ext === '.pdf') {
-      return await processPDF(filePath, formattedSigners, outputPath);
-    } else {
-      return await processImage(filePath, formattedSigners, outputPath);
-    }
-  } catch (err) {
-    console.error('❌ processDocumentWithSignatures failed:', err);
-    throw err;
-  }
+    return outputDir;
 }
 
-async function processPDF(filePath, signers, outputPath) {
-  console.log('🔍 Processing PDF:', filePath);
-  
-  try {
-    const pdfBytes = await fsp.readFile(filePath);
-    const pdfDoc = await PDFDocument.load(pdfBytes);
-    pdfDoc.registerFontkit(fontkit);  // Now fontkit is defined
-    const pages = pdfDoc.getPages();
-    const lastPage = pages[pages.length - 1];
-    const { width, height } = lastPage.getSize();
-    
-    const assetsPath = getAssetsPath();
-    const fontsPath = path.join(assetsPath, 'fonts');
-    const sigPath = path.join(assetsPath, 'signatures', 'documents');
-    
-    console.log('🔍 assetsPath:', assetsPath);
-    console.log('🔍 fontsPath:', fontsPath);
-    console.log('🔍 sigPath:', sigPath);
+// Helper function to get assets path
+function getAssetsPath() {
+    return path.join(__dirname, '..', 'assets');
+}
 
-    // Verify signature files exist
-    for (const signer of signers) {
-      const sigFilePath = path.join(sigPath, signer.signature_image);
-      console.log(`🔍 Checking signature: ${sigFilePath} - Exists: ${fs.existsSync(sigFilePath)}`);
-    }
-
-    // Load fonts
-    let timesRegular, timesBold;
-    try {
-      const regularBytes = await fsp.readFile(path.join(fontsPath, 'TimesRoman-Regular.ttf'));
-      const boldBytes = await fsp.readFile(path.join(fontsPath, 'TimesRoman-Bold.ttf'));
-      
-      timesRegular = await pdfDoc.embedFont(regularBytes);
-      timesBold = await pdfDoc.embedFont(boldBytes);
-      console.log('✅ Times Roman fonts loaded');
-    } catch (fontErr) {
-      console.error('❌ Font load failed:', fontErr.message);
-      timesRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      timesBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    }
+/**
+ * PROCESS MULTIPLE DOCUMENTS - Main function for batch processing
+ * @param {Array} files - Array of file objects from multer (req.files)
+ * @param {Array} signers - Array of signer objects from database
+ * @param {String} certNumber - Certificate number
+ * @returns {Promise<Array>} - Array of results with URLs for each document
+ */
+async function processMultipleDocuments(files, signers, certNumber = null) {
+    console.log(`🔍 Processing ${files.length} documents with ${signers.length} signatures`);
     
-    // Load "Attested" text image (replaces verified/certified)
-    let attestedTextImage;
-    try {
-      const attestedBytes = await fsp.readFile(path.join(sigPath, 'attested_text.png'));
-      attestedTextImage = await pdfDoc.embedPng(attestedBytes);
-      console.log('✅ attested_text.png loaded');
-    } catch (err) {
-      console.log('⚠️ attested_text.png not found, will use text fallback');
-    }
+    const results = [];
     
-    const numSigners = signers.length;
-    const sigBoxHeight = 110;  // REDUCED from 130
-    const sigBoxWidth = 240;   // REDUCED from 260
-    
-    const cols = numSigners === 1 ? 1 : 2;
-    const rows = Math.ceil(numSigners / cols);
-    const rowGap = 20;         // REDUCED from 25
-    const bottomMargin = 25;   // REDUCED from 30
-    
-    const totalSigHeight = (rows * sigBoxHeight) + ((rows - 1) * rowGap);
-    const startY = bottomMargin + totalSigHeight - 15;  // Adjusted
-    
-    const blueColor = rgb(0.25, 0.25, 0.6);
-    const TEXT_SIZE = 8;       // REDUCED from 10
-    const colGap = 25;         // REDUCED from 30
-    
-    // Draw signatures in grid
-    for (let i = 0; i < numSigners; i++) {
-      const signer = signers[i];
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      
-      const totalGridWidth = cols * sigBoxWidth + (cols - 1) * colGap;
-      const startX = (width - totalGridWidth) / 2;
-      const x = startX + (col * (sigBoxWidth + colGap));
-      const y = startY - 15 - (row * (sigBoxHeight + rowGap));  // Adjusted
-      
-      const centerX = x + (sigBoxWidth / 2);
-      
-      // Draw "Attested" text/image for ALL signers (replaces verified/certified)
-      if (attestedTextImage) {
-        const textHeight = 14;     // REDUCED from 18
-        const textScale = textHeight / attestedTextImage.height;
-        const textWidth = attestedTextImage.width * textScale;
+    // Process files sequentially to avoid memory issues
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        console.log(`\n📄 Processing file ${i + 1}/${files.length}: ${file.originalname}`);
         
-        lastPage.drawImage(attestedTextImage, {
-          x: centerX - (textWidth / 2),
-          y: y,
-          width: textWidth,
-          height: textHeight
-        });
-      } else {
-        // Fallback to text if image not found
-        const text = 'Attested';
-        const textWidth = timesRegular.widthOfTextAtSize(text, TEXT_SIZE);
-        lastPage.drawText(text, {
-          x: centerX - (textWidth / 2),
-          y: y,
-          size: TEXT_SIZE,
-          font: timesRegular,
-          color: blueColor
-        });
-      }
-      
-      let currentY = y - 18;     // REDUCED from 22
-      
-      // Draw signature image
-      try {
-        const sigFullPath = path.join(sigPath, signer.signature_image);
-        console.log(`🔍 Loading signature from: ${sigFullPath}`);
-        
-        const sigBytes = await fsp.readFile(sigFullPath);
-        
-        // Try PNG first, then JPG
-        let sigImage;
         try {
-          sigImage = await pdfDoc.embedPng(sigBytes);
-        } catch (pngErr) {
-          sigImage = await pdfDoc.embedJpg(sigBytes);
+            const filePath = file.path;
+            const verifiedUrl = await processDocumentWithSignatures(filePath, signers, certNumber);
+            
+            results.push({
+                id: i + 1,
+                originalName: file.originalname,
+                verifiedUrl: verifiedUrl,
+                status: 'success',
+                message: 'Document verified successfully'
+            });
+            
+        } catch (error) {
+            console.error(`❌ Failed to process ${file.originalname}:`, error);
+            results.push({
+                id: i + 1,
+                originalName: file.originalname,
+                status: 'error',
+                message: error.message
+            });
+        }
+    }
+    
+    console.log(`\n✅ Batch processing complete. Success: ${results.filter(r => r.status === 'success').length}/${files.length}`);
+    return results;
+}
+
+/**
+ * Process single document with signatures
+ * @param {String} filePath - Path to uploaded file
+ * @param {Array} signers - Array of signer objects
+ * @param {String} certNumber - Certificate number
+ * @returns {Promise<String>} - URL to verified document
+ */
+async function processDocumentWithSignatures(filePath, signers, certNumber = null) {
+    console.log(`🔍 Processing document: ${filePath}`);
+    
+    const ext = path.extname(filePath).toLowerCase();
+    let pdfDoc;
+    let originalFileName = path.basename(filePath);
+    
+    try {
+        if (ext === '.pdf') {
+            console.log('📄 Processing PDF...');
+            const pdfBytes = fs.readFileSync(filePath);
+            pdfDoc = await PDFDocument.load(pdfBytes);
+            await processPDF(pdfDoc, signers, certNumber);
+        } else if (['.jpg', '.jpeg', '.png'].includes(ext)) {
+            console.log('🖼️ Processing Image...');
+            pdfDoc = await PDFDocument.create();
+            await processImage(pdfDoc, filePath, signers, certNumber);
+        } else {
+            throw new Error(`Unsupported file type: ${ext}`);
         }
         
-        const sigHeight = 28;      // REDUCED from 35
-        const sigScale = sigHeight / sigImage.height;
-        const sigWidth = sigImage.width * sigScale;
+        const outputDir = getOutputDir();
+        const outputFileName = `verified_${Date.now()}_${originalFileName.replace(/\.[^/.]+$/, '')}.pdf`;
+        const outputPath = path.join(outputDir, outputFileName);
         
-        lastPage.drawImage(sigImage, {
-          x: centerX - (sigWidth / 2),
-          y: currentY - sigHeight,
-          width: sigWidth,
-          height: sigHeight
-        });
+        const pdfBytes = await pdfDoc.save();
+        fs.writeFileSync(outputPath, pdfBytes);
         
-        console.log(`✅ Drawn signature for ${signer.name}`);
-        currentY -= (sigHeight + 8);  // REDUCED from 10
-      } catch (err) {
-        console.error(`❌ Signature image failed for ${signer.name}:`, err.message);
-        const fallbackText = '[SIGNATURE]';
-        const textWidth = timesRegular.widthOfTextAtSize(fallbackText, TEXT_SIZE);
-        lastPage.drawText(fallbackText, {
-          x: centerX - (textWidth / 2),
-          y: currentY - 10,  // REDUCED from 12
-          size: TEXT_SIZE,
-          font: timesRegular,
-          color: blueColor
-        });
-        currentY -= 20;  // REDUCED from 24
-      }
-      
-      // Draw date
-      const dateText = signer.signatureDate;
-      const dateWidth = timesRegular.widthOfTextAtSize(dateText, TEXT_SIZE);
-      lastPage.drawText(dateText, {
-        x: centerX - (dateWidth / 2),
-        y: currentY,
-        size: TEXT_SIZE,
-        font: timesRegular,
-        color: blueColor
-      });
-      currentY -= 10;  // REDUCED from 12
-      
-      // Draw name (bold)
-      const nameWidth = timesBold.widthOfTextAtSize(signer.name, TEXT_SIZE);
-      lastPage.drawText(signer.name, {
-        x: centerX - (nameWidth / 2),
-        y: currentY,
-        size: TEXT_SIZE,
-        font: timesBold,
-        color: blueColor
-      });
-      currentY -= 9;   // REDUCED from 11
-      
-      // Draw designation
-      const desigWidth = timesRegular.widthOfTextAtSize(signer.designation, TEXT_SIZE);
-      lastPage.drawText(signer.designation, {
-        x: centerX - (desigWidth / 2),
-        y: currentY,
-        size: TEXT_SIZE,
-        font: timesRegular,
-        color: blueColor
-      });
-      currentY -= 9;   // REDUCED from 11
-      
-      // Draw organization
-      const orgText = signer.organization;
-      let orgFont = timesRegular;
-      let orgSize = TEXT_SIZE;
-      let orgWidth = orgFont.widthOfTextAtSize(orgText, orgSize);
-      
-      const maxOrgWidth = sigBoxWidth - 10;
-      if (orgWidth > maxOrgWidth) {
-        orgSize = (maxOrgWidth / orgWidth) * TEXT_SIZE;
-        orgWidth = orgFont.widthOfTextAtSize(orgText, orgSize);
-      }
-      
-      lastPage.drawText(orgText, {
-        x: centerX - (orgWidth / 2),
-        y: currentY,
-        size: orgSize,
-        font: orgFont,
-        color: blueColor
-      });
+        console.log(`✅ Verified document saved: ${outputPath}`);
+        return `/uploads/verified/${outputFileName}`;
+        
+    } catch (error) {
+        console.error('❌ Error processing document:', error);
+        throw error;
     }
-    
-    const modifiedPdfBytes = await pdfDoc.save();
-    await fsp.writeFile(outputPath, modifiedPdfBytes);
-    
-    console.log('✅ PDF processed and saved:', outputPath);
-    return `/uploads/verified/${path.basename(outputPath)}`;
-    
-  } catch (err) {
-    console.error('❌ PDF processing failed:', err);
-    throw err;
-  }
 }
 
-async function processImage(filePath, signers, outputPath) {
-  console.log('🔍 Processing Image:', filePath);
-  
-  try {
-    const pdfDoc = await PDFDocument.create();
-    pdfDoc.registerFontkit(fontkit);  // Register fontkit here too
-    const pageWidth = 595.28;
-    const pageHeight = 841.89;
+/**
+ * Process PDF - Add signatures to existing PDF
+ * @param {PDFDocument} pdfDoc - PDF document object
+ * @param {Array} signers - Array of signer objects
+ * @param {String} certNumber - Certificate number
+ */
+async function processPDF(pdfDoc, signers, certNumber = null) {
+    pdfDoc.registerFontkit(fontkit);
     
-    // Load and embed original image
-    const imageBytes = await fsp.readFile(filePath);
-    const ext = path.extname(filePath).toLowerCase();
+    const pages = pdfDoc.getPages();
+    const fontPath = path.join(getAssetsPath(), 'fonts', 'kalpurush.ttf');
+    const customFont = fs.existsSync(fontPath) ? 
+        await pdfDoc.embedFont(fs.readFileSync(fontPath)) : 
+        await pdfDoc.embedFont(StandardFonts.Helvetica);
     
-    let embeddedImage;
+    const boldFontPath = path.join(getAssetsPath(), 'fonts', 'kalpurush-bold.ttf');
+    const boldFont = fs.existsSync(boldFontPath) ?
+        await pdfDoc.embedFont(fs.readFileSync(boldFontPath)) :
+        await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    
+    // Load attested image (smaller size)
+    let attestedImage;
     try {
-      if (ext === '.png') {
-        embeddedImage = await pdfDoc.embedPng(imageBytes);
-      } else {
-        embeddedImage = await pdfDoc.embedJpg(imageBytes);
-      }
-    } catch (err) {
-      throw new Error(`Failed to embed image: ${err.message}`);
+        const attestedPath = path.join(getAssetsPath(), 'attested.png');
+        if (fs.existsSync(attestedPath)) {
+            const attestedImageBytes = fs.readFileSync(attestedPath);
+            attestedImage = await pdfDoc.embedPng(attestedImageBytes);
+        }
+    } catch (error) {
+        console.warn('⚠️ Could not load attested image:', error.message);
     }
     
-    // Calculate dimensions
-    const margin = 40;
-    const availableWidth = pageWidth - (margin * 2);
+    // Adjusted sizes based on reference image - MORE COMPACT
+    const sigBoxHeight = 110;  // Reduced from 130
+    const sigBoxWidth = 240;   // Reduced from 260
+    const attestedHeight = 14; // Reduced from 18
+    const sigHeight = 28;      // Reduced from 35
+    const textSize = 8;        // Reduced from 10
+    const rowGap = 20;         // Reduced from 25
+    const colGap = 25;         // Reduced from 30
     
-    const scale = availableWidth / embeddedImage.width;
-    const imgWidth = availableWidth;
-    const imgHeight = embeddedImage.height * scale;
+    for (const page of pages) {
+        const { width, height } = page.getSize();
+        
+        // Add certificate number at top if provided
+        if (certNumber) {
+            page.drawText(`Certificate No: ${certNumber}`, {
+                x: 50,
+                y: height - 30,
+                size: 10,
+                font: customFont,
+                color: rgb(0, 0, 0)
+            });
+        }
+        
+        // Calculate layout for 4 signatures in a row
+        const totalWidth = 4 * sigBoxWidth + 3 * colGap;
+        const startX = (width - totalWidth) / 2;
+        const startY = 60; // Bottom margin
+        
+        for (let i = 0; i < signers.length && i < 4; i++) {
+            const signer = signers[i];
+            const x = startX + i * (sigBoxWidth + colGap);
+            const y = startY;
+            
+            // Draw attested image/text at top (smaller)
+            if (attestedImage) {
+                const aspectRatio = attestedImage.width / attestedImage.height;
+                const attestedWidth = attestedHeight * aspectRatio;
+                page.drawImage(attestedImage, {
+                    x: x + (sigBoxWidth - attestedWidth) / 2,
+                    y: y + sigBoxHeight - attestedHeight - 5,
+                    width: attestedWidth,
+                    height: attestedHeight
+                });
+            } else {
+                page.drawText("Attested", {
+                    x: x + 80,
+                    y: y + sigBoxHeight - 15,
+                    size: textSize,
+                    font: boldFont,
+                    color: rgb(0, 0, 0)
+                });
+            }
+            
+            // Load and draw signature image (smaller)
+            try {
+                const sigPath = path.join(getAssetsPath(), 'signatures', 'documents', signer.signature_image);
+                if (fs.existsSync(sigPath) && signer.signature_image) {
+                    const sigImageBytes = fs.readFileSync(sigPath);
+                    const sigImage = await pdfDoc.embedPng(sigImageBytes);
+                    const aspectRatio = sigImage.width / sigImage.height;
+                    const sigWidth = sigHeight * aspectRatio;
+                    
+                    page.drawImage(sigImage, {
+                        x: x + (sigBoxWidth - sigWidth) / 2,
+                        y: y + sigBoxHeight - sigHeight - attestedHeight - 10,
+                        width: sigWidth,
+                        height: sigHeight
+                    });
+                }
+            } catch (error) {
+                console.warn(`⚠️ Could not load signature for ${signer.name}:`, error.message);
+            }
+            
+            // Draw text info (compact layout)
+            let currentY = y + sigBoxHeight - sigHeight - attestedHeight - 18;
+            
+            // Date
+            const dateText = signer.signatureDate ? 
+                formatSignatureDate(signer.signatureDate) : 
+                "Date: _______________";
+            page.drawText(dateText, {
+                x: x + 10,
+                y: currentY,
+                size: textSize - 1,
+                font: customFont,
+                color: rgb(0, 0, 0)
+            });
+            currentY -= 12;
+            
+            // Name (bold)
+            page.drawText(signer.name, {
+                x: x + 10,
+                y: currentY,
+                size: textSize,
+                font: boldFont,
+                color: rgb(0, 0, 0)
+            });
+            currentY -= 10;
+            
+            // Designation
+            page.drawText(signer.designation, {
+                x: x + 10,
+                y: currentY,
+                size: textSize - 0.5,
+                font: customFont,
+                color: rgb(0, 0, 0)
+            });
+            currentY -= 9;
+            
+            // Organization
+            page.drawText(signer.organization, {
+                x: x + 10,
+                y: currentY,
+                size: textSize - 1,
+                font: customFont,
+                color: rgb(0, 0, 0)
+            });
+        }
+    }
     
-    // Calculate signature section
-    const numSigners = signers.length;
-    const sigBoxHeight = 110;  // REDUCED from 130
-    const sigBoxWidth = 240;   // REDUCED from 260
-    const rows = Math.ceil(numSigners / 2);
-    const rowGap = 20;         // REDUCED from 25
-    const sigSectionHeight = (rows * sigBoxHeight) + ((rows - 1) * rowGap) + 15;  // Adjusted
+    return pdfDoc;
+}
+
+/**
+ * Process Image - Convert to PDF and add signatures
+ * @param {PDFDocument} pdfDoc - PDF document object
+ * @param {String} imagePath - Path to image file
+ * @param {Array} signers - Array of signer objects
+ * @param {String} certNumber - Certificate number
+ */
+async function processImage(pdfDoc, imagePath, signers, certNumber = null) {
+    pdfDoc.registerFontkit(fontkit);
     
-    const totalHeight = imgHeight + sigSectionHeight + 15;  // Adjusted
-    const finalPageHeight = Math.max(pageHeight, totalHeight);
+    const fontPath = path.join(getAssetsPath(), 'fonts', 'kalpurush.ttf');
+    const customFont = fs.existsSync(fontPath) ? 
+        await pdfDoc.embedFont(fs.readFileSync(fontPath)) : 
+        await pdfDoc.embedFont(StandardFonts.Helvetica);
     
-    const page = pdfDoc.addPage([pageWidth, finalPageHeight]);
+    const boldFontPath = path.join(getAssetsPath(), 'fonts', 'kalpurush-bold.ttf');
+    const boldFont = fs.existsSync(boldFontPath) ?
+        await pdfDoc.embedFont(fs.readFileSync(boldFontPath)) :
+        await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    
+    // Load image
+    const ext = path.extname(imagePath).toLowerCase();
+    const imageBytes = fs.readFileSync(imagePath);
+    let embeddedImage;
+    
+    if (ext === '.png') {
+        embeddedImage = await pdfDoc.embedPng(imageBytes);
+    } else {
+        embeddedImage = await pdfDoc.embedJpg(imageBytes);
+    }
+    
+    // Add page with image and extra space for signatures
+    const pageWidth = embeddedImage.width;
+    const pageHeight = embeddedImage.height + 180; // Extra space for signatures
+    const page = pdfDoc.addPage([pageWidth, pageHeight]);
     
     // Draw image at top
     page.drawImage(embeddedImage, {
-      x: margin,
-      y: finalPageHeight - imgHeight - 8,  // Adjusted
-      width: imgWidth,
-      height: imgHeight
+        x: 0,
+        y: 180,
+        width: embeddedImage.width,
+        height: embeddedImage.height
     });
     
-    const assetsPath = getAssetsPath();
-    const fontsPath = path.join(assetsPath, 'fonts');
-    const sigPath = path.join(assetsPath, 'signatures', 'documents');
+    // Adjusted sizes for image mode (even more compact)
+    const sigBoxHeight = 110;
+    const sigBoxWidth = 240;
+    const sigHeight = 24; // Smaller for image mode
+    const textSize = 7;   // Smaller for image mode
     
-    // Load fonts
-    let timesRegular, timesBold;
-    try {
-      const regularBytes = await fsp.readFile(path.join(fontsPath, 'TimesRoman-Regular.ttf'));
-      const boldBytes = await fsp.readFile(path.join(fontsPath, 'TimesRoman-Bold.ttf'));
-      
-      timesRegular = await pdfDoc.embedFont(regularBytes);
-      timesBold = await pdfDoc.embedFont(boldBytes);
-    } catch (fontErr) {
-      console.error('Font load failed:', fontErr.message);
-      timesRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      timesBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    }
+    // Calculate layout for 4 signatures
+    const totalWidth = 4 * sigBoxWidth + 3 * 25;
+    const startX = (pageWidth - totalWidth) / 2;
+    const startY = 20;
     
-    // Load "Attested" text image
-    let attestedTextImage;
-    try {
-      const attestedBytes = await fsp.readFile(path.join(sigPath, 'attested_text.png'));
-      attestedTextImage = await pdfDoc.embedPng(attestedBytes);
-    } catch (err) {
-      console.log('attested_text.png not found');
-    }
-    
-    const blueColor = rgb(0.25, 0.25, 0.6);
-    const TEXT_SIZE = 7;       // REDUCED from 8
-    const colGap = 25;         // REDUCED from 30
-    
-    // Draw signatures
-    const sigStartY = finalPageHeight - imgHeight - 12;  // Adjusted
-    const cols = numSigners === 1 ? 1 : 2;
-    
-    for (let i = 0; i < numSigners; i++) {
-      const signer = signers[i];
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      
-      const totalGridWidth = cols * sigBoxWidth + (cols - 1) * colGap;
-      const startX = (pageWidth - totalGridWidth) / 2;
-      const x = startX + (col * (sigBoxWidth + colGap));
-      const y = sigStartY - (row * (sigBoxHeight + rowGap));
-      
-      const centerX = x + (sigBoxWidth / 2);
-      
-      // Draw "Attested" for ALL signers
-      if (attestedTextImage) {
-        const textHeight = 12;     // REDUCED from 18
-        const textScale = textHeight / attestedTextImage.height;
-        const textWidth = attestedTextImage.width * textScale;
+    for (let i = 0; i < signers.length && i < 4; i++) {
+        const signer = signers[i];
+        const x = startX + i * (sigBoxWidth + 25);
         
-        page.drawImage(attestedTextImage, {
-          x: centerX - (textWidth / 2),
-          y: y,
-          width: textWidth,
-          height: textHeight
-        });
-      } else {
-        const text = 'Attested';
-        const textWidth = timesRegular.widthOfTextAtSize(text, TEXT_SIZE);
-        page.drawText(text, {
-          x: centerX - (textWidth / 2),
-          y: y,
-          size: TEXT_SIZE,
-          font: timesRegular,
-          color: blueColor
-        });
-      }
-      
-      let currentY = y - 16;     // REDUCED from 22
-      
-      // Draw signature
-      try {
-        const sigFullPath = path.join(sigPath, signer.signature_image);
-        const sigBytes = await fsp.readFile(sigFullPath);
-        
-        let sigImage;
+        // Draw signature image (smaller)
         try {
-          sigImage = await pdfDoc.embedPng(sigBytes);
-        } catch (pngErr) {
-          sigImage = await pdfDoc.embedJpg(sigBytes);
+            const sigPath = path.join(getAssetsPath(), 'signatures', 'documents', signer.signature_image);
+            if (fs.existsSync(sigPath) && signer.signature_image) {
+                const sigBytes = fs.readFileSync(sigPath);
+                const sigImage = await pdfDoc.embedPng(sigBytes);
+                const aspectRatio = sigImage.width / sigImage.height;
+                const sigWidth = sigHeight * aspectRatio;
+                
+                page.drawImage(sigImage, {
+                    x: x + (sigBoxWidth - sigWidth) / 2,
+                    y: startY + 80,
+                    width: sigWidth,
+                    height: sigHeight
+                });
+            }
+        } catch (error) {
+            console.warn(`⚠️ Could not load signature for ${signer.name}:`, error.message);
         }
         
-        const sigHeight = 24;      // REDUCED from 35
-        const sigScale = sigHeight / sigImage.height;
-        const sigWidth = sigImage.width * sigScale;
+        // Draw text info (compact)
+        let currentY = startY + 65;
         
-        page.drawImage(sigImage, {
-          x: centerX - (sigWidth / 2),
-          y: currentY - sigHeight,
-          width: sigWidth,
-          height: sigHeight
+        // Date
+        const dateText = signer.signatureDate ? 
+            formatSignatureDate(signer.signatureDate) : 
+            "Date: _______________";
+        page.drawText(dateText, {
+            x: x + 10,
+            y: currentY,
+            size: 7,
+            font: customFont,
+            color: rgb(76, 32, 114)
         });
+        currentY -= 11;
         
-        currentY -= (sigHeight + 6);  // REDUCED from 10
-      } catch (err) {
-        console.log('Signature not found:', signer.signature_image);
-        const fallbackText = '[SIGNATURE]';
-        const textWidth = timesRegular.widthOfTextAtSize(fallbackText, TEXT_SIZE);
-        page.drawText(fallbackText, {
-          x: centerX - (textWidth / 2),
-          y: currentY - 8,  // REDUCED from 12
-          size: TEXT_SIZE,
-          font: timesRegular,
-          color: blueColor
+        // Name (bold)
+        page.drawText(signer.name, {
+            x: x + 10,
+            y: currentY,
+            size: 7,
+            font: boldFont,
+            color: rgb(76, 32, 114)
         });
-        currentY -= 16;  // REDUCED from 24
-      }
-      
-      // Draw date
-      const dateWidth = timesRegular.widthOfTextAtSize(signer.signatureDate, TEXT_SIZE);
-      page.drawText(signer.signatureDate, {
-        x: centerX - (dateWidth / 2),
-        y: currentY,
-        size: TEXT_SIZE,
-        font: timesRegular,
-        color: blueColor
-      });
-      currentY -= 9;   // REDUCED from 12
-      
-      // Draw name (bold)
-      const nameWidth = timesBold.widthOfTextAtSize(signer.name, TEXT_SIZE);
-      page.drawText(signer.name, {
-        x: centerX - (nameWidth / 2),
-        y: currentY,
-        size: TEXT_SIZE,
-        font: timesBold,
-        color: blueColor
-      });
-      currentY -= 8;   // REDUCED from 11
-      
-      // Draw designation
-      const desigWidth = timesRegular.widthOfTextAtSize(signer.designation, TEXT_SIZE);
-      page.drawText(signer.designation, {
-        x: centerX - (desigWidth / 2),
-        y: currentY,
-        size: TEXT_SIZE,
-        font: timesRegular,
-        color: blueColor
-      });
-      currentY -= 8;   // REDUCED from 11
-      
-      // Draw organization
-      const orgText = signer.organization;
-      let orgFont = timesRegular;
-      let orgSize = TEXT_SIZE;
-      let orgWidth = orgFont.widthOfTextAtSize(orgText, orgSize);
-      
-      const maxOrgWidth = sigBoxWidth - 10;
-      if (orgWidth > maxOrgWidth) {
-        orgSize = (maxOrgWidth / orgWidth) * TEXT_SIZE;
-        orgWidth = orgFont.widthOfTextAtSize(orgText, orgSize);
-      }
-      
-      page.drawText(orgText, {
-        x: centerX - (orgWidth / 2),
-        y: currentY,
-        size: orgSize,
-        font: orgFont,
-        color: blueColor
-      });
+        currentY -= 9;
+        
+        // Designation
+        page.drawText(signer.designation, {
+            x: x + 10,
+            y: currentY,
+            size: 6.5,
+            font: customFont,
+            color: rgb(76, 32, 114)
+        });
+        currentY -= 8;
+        
+        // Organization
+        page.drawText(signer.organization, {
+            x: x + 10,
+            y: currentY,
+            size: 6,
+            font: customFont,
+            color: rgb(76, 32, 114)
+        });
     }
     
-    const pdfBytes = await pdfDoc.save();
-    const finalOutputPath = outputPath.replace(/\\.(jpg|jpeg|png)$/i, '.pdf');
-    await fsp.writeFile(finalOutputPath, pdfBytes);
-    
-    console.log('✅ Image processed and saved:', finalOutputPath);
-    return `/uploads/verified/${path.basename(finalOutputPath)}`;
-    
-  } catch (err) {
-    console.error('❌ Image processing failed:', err);
-    throw err;
-  }
+    return pdfDoc;
 }
 
-module.exports = { processDocumentWithSignatures };
+module.exports = { 
+    processDocumentWithSignatures,
+    processMultipleDocuments
+};
