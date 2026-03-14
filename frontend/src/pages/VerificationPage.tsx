@@ -26,22 +26,24 @@ const VerificationPage = () => {
       if (!isMounted) return;
       setVerificationData(response.data);
 
-      // Base URL without trailing slash
       const baseURL = "https://bangladesh-apostille-api.onrender.com".trim();
 
-      // Build certificate URL using filename only
+      // ✅ FIXED: Use the path directly, don't add extra /certificates/
       if (response.data.certificateFilename) {
-        setCertificateUrl(`${baseURL}/certificates/${response.data.certificateFilename}`);
+        // certificateFilename should be "certificates/filename.pdf"
+        setCertificateUrl(`${baseURL}/${response.data.certificateFilename}`);
       }
 
-      // Build verified documents URLs
+      // ✅ FIXED: Same for reuploaded files
       if (response.data.reuploadedFiles?.length > 0) {
-        const urls = response.data.reuploadedFiles.map((filename: string) => 
-          `${baseURL}/verified/${filename}`
+        // reuploadedFiles should be ["verified/file1.pdf", "verified/file2.pdf"]
+        const urls = response.data.reuploadedFiles.map((filepath: string) => 
+          `${baseURL}/${filepath}` // filepath already includes "verified/"
         );
         setProcessedFiles(urls);
       } else {
         console.warn('⚠️ No reuploadedFiles in response:', response.data);
+        setProcessedFiles([]);
       }
 
       setLoading(false);

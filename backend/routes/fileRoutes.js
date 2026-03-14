@@ -322,19 +322,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
     
     const upload = result.rows[0];
 
-    // Helper: Extract just filename from any path format
-    const extractFilename = (p) => {
-      if (!p) return null;
-      if (typeof p === 'object' && p.path) p = p.path; // Handle object format
-      return p.split('/').pop()?.split('\\').pop() || null;
-    };
-
-    // Build certificate filename (just the filename, not full path)
-    const certFilename = upload.certificate_pdf_path 
-      ? extractFilename(upload.certificate_pdf_path)
-      : null;
-    
-    // Parse reuploaded files - handle both JSON string and array formats
+    // Parse reuploaded_file_paths (handle both JSON string and array)
     let reuploadedFiles = [];
     if (upload.reuploaded_file_paths) {
       try {
@@ -343,20 +331,23 @@ router.get('/verify/:certificateNumber', async (req, res) => {
           : upload.reuploaded_file_paths;
         
         if (Array.isArray(paths)) {
-          reuploadedFiles = paths.map(extractFilename).filter(Boolean);
+          reuploadedFiles = paths;
         }
       } catch (e) {
         console.warn('⚠️ Failed to parse reuploaded_file_paths:', e);
       }
     }
 
-    console.log('✅ Sending response:', { certFilename, reuploadedFiles });
+    console.log('✅ Verification data:', {
+      certPath: upload.certificate_pdf_path,
+      reuploadedFiles: reuploadedFiles
+    });
 
     res.json({
       certificateNumber: upload.certificate_number,
-      certificateFilename: certFilename, // Just filename, not path
+      certificateFilename: upload.certificate_pdf_path, // e.g., "certificates/filename.pdf"
       certificateData: upload.certificate_data,
-      reuploadedFiles: reuploadedFiles, // Array of filenames only
+      reuploadedFiles: reuploadedFiles, // e.g., ["verified/file1.pdf", "verified/file2.pdf"]
       signaturesData: upload.additional_signatures_data || [],
       verifiedAt: upload.verified_at,
       userName: upload.user_name,
@@ -368,18 +359,18 @@ router.get('/verify/:certificateNumber', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
-// CRITICAL: Verify endpoint - SIMPLIFIED AND FIXED
-// REPLACE the entire verify route with this diagnostic version:
-
-// POST /verify/:id - COMPLETELY FIXED VERSION
-// POST /verify/:id - FINAL FIXED VERSION
+// POST /verify/:id - COMPLETE FIXED VERSION
 router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('reuploadedFiles', 10), async (req, res) => {
   const uploadId = req.params.id;
   console.log('🔍 Verify endpoint called for upload:', uploadId);
   
+  const client = await pool.connect();
+  
   try {
+    await client.query('BEGIN');
+
     // ========== Step 1: Fetch upload ==========
-    const uploadResult = await pool.query('SELECT * FROM uploads WHERE id = $1', [uploadId]);
+    const uploadResult = await client.query('SELECT * FROM uploads WHERE id = $1', [uploadId]);
     if (uploadResult.rows.length === 0) {
       return res.status(404).json({ message: 'Upload not found' });
     }
@@ -420,21 +411,23 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     await ensureDirAsync(certDir);
     const certFileName = `certificate-${certNumber}.pdf`;
     const certFilePath = path.join(certDir, certFileName);
-    const relativeCertPath = `/uploads/certificates/${certFileName}`;
     
     await fs.promises.writeFile(certFilePath, certResult.pdfBytes);
-    console.log('✅ Certificate saved:', relativeCertPath);
+    console.log('✅ Certificate saved:', certFilePath);
 
-    // ========== Step 4: Parse additional signers (OPTIONAL) ==========
-    
-    
+    // Store relative path (not absolute)
+    const relativeCertPath = `certificates/${certFileName}`;
+
+    // ========== Step 4: Parse additional signers ==========
+    let signersWithDates = [];
+    let signaturesData = [];
     
     if (additionalSigners) {
       try {
         const signerIds = JSON.parse(additionalSigners);
         if (signerIds.length > 0) {
           const signerIdsArray = signerIds.map(s => s.signerId);
-          const signersResult = await pool.query(
+          const signersResult = await client.query(
             'SELECT * FROM additional_signers WHERE id = ANY($1)',
             [signerIdsArray]
           );
@@ -449,53 +442,62 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
       }
     }
 
-   // Step 5: Process signatures on uploaded documents
-console.log('🔍 Step 5: Processing signatures...');
-let reuploadedPaths = [];
-let signaturesData = [];
+    // ========== Step 5: Process signatures on uploaded documents ==========
+    console.log('🔍 Processing documents...');
+    let reuploadedPaths = [];
 
-// Parse signers first (optional)
-let signersWithDates = [];
-if (additionalSigners) {
-  try {
-    const signerIds = JSON.parse(additionalSigners);
-    if (signerIds.length > 0) {
-      const signerIdsArray = signerIds.map(s => s.signerId);
-      const signersResult = await pool.query(
-        'SELECT * FROM additional_signers WHERE id = ANY($1)',
-        [signerIdsArray]
-      );
-      signersWithDates = signersResult.rows.map(signer => ({
-        ...signer,
-        signatureDate: signerIds.find(s => s.signerId === signer.id)?.date || new Date().toISOString().split('T')[0]
-      }));
-      signaturesData = signersWithDates;
+    const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
+    await ensureDirAsync(verifiedDir);
+    
+    for (const file of req.files) {
+      try {
+        // Assuming processDocumentWithSignatures is imported
+        const processedPath = await processDocumentWithSignatures(
+          file.path,
+          signersWithDates,
+          certNumber
+        );
+        
+        // Store relative path
+        const processedFilename = path.basename(processedPath);
+        const relativePath = `verified/${processedFilename}`;
+        reuploadedPaths.push(relativePath);
+        
+        console.log('✅ File processed:', relativePath);
+      } catch (procErr) {
+        console.error('⚠️ File processing failed:', file.originalname, procErr.message);
+        throw procErr; // Fail the whole transaction if one file fails
+      }
     }
-  } catch (e) {
-    console.warn('⚠️ Failed to parse additionalSigners:', e.message);
-  }
-}
 
-// ✅ Process ALL files - MOVED OUTSIDE the signers condition
-if (req.files && req.files.length > 0) {
-  const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
-  await ensureDirAsync(verifiedDir);
-  
-  for (const file of req.files) {
-    try {
-      const processedPath = await processDocumentWithSignatures(
-        file.path,
-        signersWithDates,  // Empty array = no signatures drawn, but file still processed
-        certNumber
-      );
-      reuploadedPaths.push(processedPath);
-      console.log('✅ File processed:', processedPath);
-    } catch (procErr) {
-      console.error('⚠️ File processing failed:', file.originalname, procErr.message);
-    }
-  }
-}
-console.log('🔍 reuploadedPaths:', reuploadedPaths);
+    // ========== Step 6: UPDATE DATABASE ==========
+    console.log('💾 Saving to database...');
+    const updateQuery = `
+      UPDATE uploads 
+      SET status = 'verified',
+          certificate_number = $1,
+          certificate_pdf_path = $2,
+          certificate_data = $3,
+          reuploaded_file_paths = $4,
+          additional_signatures_data = $5,
+          verified_by = $6,
+          verified_at = CURRENT_TIMESTAMP
+      WHERE id = $7
+      RETURNING *
+    `;
+
+    const updateResult = await client.query(updateQuery, [
+      certNumber,
+      relativeCertPath,
+      JSON.stringify(certificateData),
+      JSON.stringify(reuploadedPaths),
+      JSON.stringify(signaturesData),
+      req.user.id,
+      uploadId
+    ]);
+
+    await client.query('COMMIT');
+    console.log('✅ Database updated:', updateResult.rows[0].id);
 
     // ========== Step 7: Cleanup original files ==========
     if (upload.file_paths) {
@@ -512,13 +514,15 @@ console.log('🔍 reuploadedPaths:', reuploadedPaths);
     res.json({
       message: 'e-APOSTILLE Certificate generated successfully',
       certificateNumber: certNumber,
-      certificatePath: relativeCertPath
+      certificatePath: relativeCertPath,
+      reuploadedFiles: reuploadedPaths
     });
 
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('❌ VERIFICATION FAILED:', err.message);
     
-    // Cleanup on error
+    // Cleanup uploaded files on error
     if (req.files) {
       for (const file of req.files) {
         await deleteFileAsync(file.path).catch(() => {});
@@ -529,6 +533,8 @@ console.log('🔍 reuploadedPaths:', reuploadedPaths);
       message: 'Verification failed',
       error: process.env.NODE_ENV === 'development' ? err.message : 'Server error'
     });
+  } finally {
+    client.release();
   }
 });
 
