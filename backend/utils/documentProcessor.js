@@ -89,6 +89,7 @@ async function processPDF(filePath, signers, outputPath) {
   try {
     const pdfBytes = await fsp.readFile(filePath);
     const pdfDoc = await PDFDocument.load(pdfBytes);
+    pdfDoc.registerFontkit(fontkit);
     const pages = pdfDoc.getPages();
     const lastPage = pages[pages.length - 1];
     const { width, height } = lastPage.getSize();
