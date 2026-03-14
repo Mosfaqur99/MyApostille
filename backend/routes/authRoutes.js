@@ -3,20 +3,13 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
+const { MailerSend, EmailParams, Sender, Recipient } = require('mailersend');
 const pool = require('../config/db');
 
-// Email transporter - SendGrid configuration
-const getTransporter = () => {
-  return nodemailer.createTransport({
-    host: 'smtp.sendgrid.net',
-    port: 587,
-    auth: {
-      user: 'apikey',  // Literally the word "apikey"
-      pass: process.env.SENDGRID_API_KEY  // Your actual SendGrid API key
-    }
-  });
-};
+// Initialize MailerSend
+const mailersend = new MailerSend({
+  apiKey: process.env.MAILERSEND_API_KEY
+});
 
 // Generate secure random token
 const generateResetToken = () => {
@@ -152,15 +145,20 @@ router.post('/forgot-password', async (req, res) => {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
 
-    // Send email via SendGrid
+    // Send email via MailerSend
     try {
-      const transporter = getTransporter();
+      const sentFrom = new Sender(
+        process.env.MAILERSEND_FROM_EMAIL, 
+        'e-APOSTILLE Bangladesh'
+      );
       
-      await transporter.sendMail({
-        from: `"e-APOSTILLE Bangladesh" <${process.env.FROM_EMAIL || 'noreply@yourdomain.com'}>`,
-        to: user.email,
-        subject: 'Password Reset - e-APOSTILLE System',
-        html: `
+      const recipients = [new Recipient(user.email, user.name)];
+
+      const emailParams = new EmailParams()
+        .setFrom(sentFrom)
+        .setTo(recipients)
+        .setSubject('Password Reset - e-APOSTILLE System')
+        .setHtml(`
           <!DOCTYPE html>
           <html>
           <head>
@@ -249,8 +247,23 @@ router.post('/forgot-password', async (req, res) => {
             </table>
           </body>
           </html>
-        `
-      });
+        `)
+        .setText(`Password Reset - e-APOSTILLE Bangladesh
+
+Hello ${user.name},
+
+We received a request to reset your password. Click this link to reset:
+
+${resetUrl}
+
+This link expires in 1 hour and can only be used once.
+
+If you didn't request this reset, please ignore this email.
+
+Ministry of Foreign Affairs, Bangladesh
+${new Date().getFullYear()}`);
+
+      await mailersend.email.send(emailParams);
 
       console.log(`Password reset email sent to: ${user.email}`);
 
