@@ -126,7 +126,7 @@ async function generateEApostilleCertificate(certificateData) {
     const drawRow = (num, labelText, valueText, yPos, options = {}) => {
       const labelSize = options.labelSize || 12;
       const valueSize = options.valueSize || 12;
-      const gap = options.gap || 9;
+      const gap = options.gap || 2;
       
       let currentX = labelX;
       

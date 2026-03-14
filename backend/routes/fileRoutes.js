@@ -220,21 +220,19 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 
 
 // Get verification details (public) - FIXED
+// Get verification details (public) - Updated for path consistency
 router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
     console.log('🔍 Verification request for:', certificateNumber);
-    
-    // Clean the certificate number (remove 'cert_' prefix if present)
-    const cleanCertNumber = certificateNumber.replace(/^cert_/, '');
-    
+
     const uploads = await pool.query(
-      `SELECT uploads.*, users.name as user_name 
+      `SELECT uploads.*, users.name as user_name, verifier.name as verified_by_name
        FROM uploads 
        JOIN users ON uploads.user_id = users.id
-       WHERE (uploads.certificate_number = $1 OR uploads.certificate_number = $2) 
-       AND uploads.status = $3`,
-      [certificateNumber, cleanCertNumber, 'verified']
+       LEFT JOIN users verifier ON uploads.verified_by = verifier.id
+       WHERE uploads.certificate_number = $1 AND uploads.status = $2`,
+      [certificateNumber, 'verified']
     );
     
     if (uploads.rows.length === 0) {
@@ -242,64 +240,22 @@ router.get('/verify/:certificateNumber', async (req, res) => {
     }
     
     const upload = uploads.rows[0];
-    console.log('✅ Found certificate:', upload.certificate_number);
-    
-    // FIX: Reconstruct certificate path if missing
-    let certificatePath = upload.certificate_pdf_path;
-    if (!certificatePath && upload.certificate_data) {
-      const certData = typeof upload.certificate_data === 'string' 
-        ? JSON.parse(upload.certificate_data) 
-        : upload.certificate_data;
-      
-      const certNum = certData.certificateNumber || upload.certificate_number;
-      if (certNum) {
-        certificatePath = `/uploads/certificates/certificate-${certNum}.pdf`;
-        console.log('🔧 Reconstructed certificate path:', certificatePath);
-      }
-    }
-    
-    // FIX: Convert absolute file paths to web-accessible URLs
-    let reuploadedFiles = [];
-    try {
-      if (upload.reuploaded_file_paths) {
-        const rawPaths = typeof upload.reuploaded_file_paths === 'string'
-          ? JSON.parse(upload.reuploaded_file_paths)
-          : upload.reuploaded_file_paths;
-        
-        console.log('🔧 Raw paths:', rawPaths);
-        
-        reuploadedFiles = rawPaths.map((filePath) => {
-          if (typeof filePath !== 'string') return filePath;
-          
-          // If already relative URL, use as-is
-          if (filePath.startsWith('/uploads/')) {
-            return filePath;
-          }
-          
-          // Convert absolute path to API URL
-          const filename = path.basename(filePath);
-          if (filePath.includes('/verified/')) {
-            return `/api/files/verified/${filename}`;
-          } else if (filePath.includes('/original/')) {
-            return `/api/files/uploads/${filename}`;
-          }
-          return filePath;
-        });
-        
-        console.log('🔧 Converted URLs:', reuploadedFiles);
-      }
-    } catch (e) {
-      console.warn('Could not parse reuploaded_file_paths:', e.message);
-    }
     
     res.json({
       certificateNumber: upload.certificate_number,
-      certificatePath: certificatePath,  // Now has correct value
+      certificatePath: upload.certificate_pdf_path
+  ? upload.certificate_pdf_path.replace(/^.*uploads[\\/]/, "uploads/")
+  : null,// Ensure this matches relative path in DB
       certificateData: upload.certificate_data,
-      reuploadedFiles: reuploadedFiles,  // Now has API URLs
+      reuploadedFiles: upload.reuploaded_file_paths
+  ? upload.reuploaded_file_paths.map(p =>
+      p.replace(/^.*uploads[\\/]/, "uploads/")
+    )
+  : [],
       signaturesData: upload.additional_signatures_data || [],
       verifiedAt: upload.verified_at,
-      userName: upload.user_name
+      userName: upload.user_name,
+      verifiedBy: upload.verified_by_name
     });
   } catch (err) {
     console.error('Error fetching verification:', err);
