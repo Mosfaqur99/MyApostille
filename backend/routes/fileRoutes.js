@@ -813,4 +813,37 @@ router.patch('/edit/:id', verifyToken, upload.array('files', 10), async (req, re
   }
 });
 
+
+// In backend/routes/fileRoutes.js
+
+router.post('/verify-batch', verifyToken, async (req, res) => {
+  try {
+    const { uploadId, certNumber } = req.body;
+
+    // 1. Fetch file paths and signers from DB
+    const uploadRes = await pool.query('SELECT file_paths FROM uploads WHERE id = $1', [uploadId]);
+    const signersRes = await pool.query('SELECT * FROM signers WHERE is_active = true LIMIT 4');
+
+    if (uploadRes.rows.length === 0) return res.status(404).json({ message: "Files not found" });
+
+    const filePaths = JSON.parse(uploadRes.rows[0].file_paths);
+    const signers = signersRes.rows;
+
+    // 2. Map file paths to objects multer-style for the processor
+    const filesToProcess = filePaths.map(p => ({
+      path: path.join(__dirname, '..', p),
+      originalname: path.basename(p)
+    }));
+
+    // 3. Process all
+    const results = await processMultipleDocuments(filesToProcess, signers, certNumber);
+
+    res.json({
+      success: true,
+      processedFiles: results
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 module.exports = router;
