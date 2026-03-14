@@ -299,6 +299,7 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 // backend/routes/fileRoutes.js
 
 // GET /verify/:certificateNumber - PUBLIC verification endpoint
+// GET /verify/:certificateNumber - PUBLIC verification endpoint
 router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
@@ -318,34 +319,35 @@ router.get('/verify/:certificateNumber', async (req, res) => {
       return res.status(404).json({ message: 'Certificate not found' });
     }
     
-    // ✅ Declare upload FIRST before using it anywhere
     const upload = result.rows[0];
 
-    // 2. Helper: Extract just the filename from paths like "uploads/verified/file.pdf"
+    // 2. Helper: Extract just filename from paths like "uploads/verified/file.pdf"
     const extractFilename = (p) => {
       if (!p) return null;
-      // Remove any directory path, keep only filename
       return p.split('/').pop()?.split('\\').pop() || null;
     };
 
-    // 3. Build response matching frontend expectations (VerificationPage.jsx)
+    // 3. Build certificate path
     const certificatePath = upload.certificate_pdf_path 
       ? upload.certificate_pdf_path.replace(/\\/g, '/').replace(/^.*uploads[\\/]/i, "uploads/") 
       : null;
     
-    // Handle reuploaded_files: support JSON string or array, extract filenames only
+    // 4. ✅ FIXED: Handle reuploaded_file_paths - parse JSON string if needed, extract filenames
     let reuploadedFiles = [];
     if (upload.reuploaded_file_paths) {
       try {
+        // Parse if it's a JSON string (TEXT column), otherwise use as-is (JSONB column)
         const paths = typeof upload.reuploaded_file_paths === 'string' 
           ? JSON.parse(upload.reuploaded_file_paths) 
           : upload.reuploaded_file_paths;
         
         if (Array.isArray(paths)) {
+          // Extract just filenames for /verified/:filename route
           reuploadedFiles = paths
             .map(extractFilename)
             .filter(Boolean);
         } else if (paths) {
+          // Handle single path (edge case)
           const filename = extractFilename(paths);
           if (filename) reuploadedFiles = [filename];
         }
@@ -354,18 +356,18 @@ router.get('/verify/:certificateNumber', async (req, res) => {
       }
     }
 
-    // ✅ Debug logs (AFTER upload is declared)
-    console.log('🔍 DB data:', {
+    // Debug log
+    console.log('🔍 Response data:', {
       certificatePath,
       reuploadedFiles,
-      raw_reuploaded: upload.reuploaded_file_paths
+      raw_db_value: upload.reuploaded_file_paths
     });
 
-    // 4. Send response - matches what VerificationPage.jsx expects
+    // 5. Send response matching frontend expectations
     res.json({
       certificateNumber: upload.certificate_number,
       certificatePath: certificatePath,
-      reuploadedFiles: reuploadedFiles,  // ← Frontend reads THIS (array of filenames)
+      reuploadedFiles: reuploadedFiles,  // ← Array of filenames like ["verified_123_file.pdf"]
       verifiedAt: upload.verified_at,
       userName: upload.user_name,
       verifiedBy: upload.verified_by_name
@@ -461,76 +463,60 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
       throw certErr;
     }
 
-    // Step 5: Process signatures
-     console.log('🔍 Step 5: Processing signatures...');
-    let reuploadedPaths = [];
-    let signaturesData = [];
+    // Step 5: Process signatures on uploaded documents
+console.log('🔍 Step 5: Processing signatures...');
+let reuploadedPaths = [];
+let signaturesData = [];
 
-    if (additionalSigners) {
-      console.log('🔍 Additional signers provided:', additionalSigners);
-      const signerIds = JSON.parse(additionalSigners);
-      console.log('🔍 Parsed signer IDs:', signerIds);
-      
-      if (signerIds.length > 0) {
-        const signerIdsArray = signerIds.map(s => s.signerId);
-        console.log('🔍 Fetching signers from DB...');
-        const signersResult = await pool.query(
-          'SELECT * FROM additional_signers WHERE id = ANY($1)',
-          [signerIdsArray]
-        );
-        console.log('🔍 Found signers:', signersResult.rows.length);
-        
-        const signersWithDates = signersResult.rows.map(signer => {
-          const selected = signerIds.find(s => s.signerId === signer.id);
-          return {
-            ...signer,
-            signatureDate: selected?.date || new Date().toISOString().split('T')[0]
-          };
-        });
-        
-        signaturesData = signersWithDates;
-        
-        // Use processMultipleDocuments instead of looping
-        console.log('🔍 Calling processMultipleDocuments...');
-        try {
-          const processedResults = await processMultipleDocuments(
-            req.files,
-            signersWithDates,
-            certNumber
-          );
-          
-          // Extract successful URLs
-          reuploadedPaths = processedResults
-            .filter(r => r.status === 'success')
-            .map(r => r.verifiedUrl);
-            
-          console.log('🔍 Files processed:', reuploadedPaths.length);
-        } catch (procErr) {
-          console.error('🔍 FILE PROCESSING FAILED:', procErr);
-          throw procErr;
-        }
-      }
-    } else {
-      // No additional signers - just process files without signatures
-      console.log('🔍 No additional signers, processing files without signatures...');
-      try {
-        const processedResults = await processMultipleDocuments(
-          req.files,
-          [], // Empty signers array
-          certNumber
-        );
-        
-        reuploadedPaths = processedResults
-          .filter(r => r.status === 'success')
-          .map(r => r.verifiedUrl);
-          
-        console.log('🔍 Files processed:', reuploadedPaths.length);
-      } catch (procErr) {
-        console.error('🔍 FILE PROCESSING FAILED:', procErr);
-        throw procErr;
-      }
+// Parse additional signers if provided
+let signersWithDates = [];
+if (additionalSigners) {
+  try {
+    const signerIds = JSON.parse(additionalSigners);
+    if (signerIds.length > 0) {
+      const signerIdsArray = signerIds.map(s => s.signerId);
+      const signersResult = await pool.query(
+        'SELECT * FROM additional_signers WHERE id = ANY($1)',
+        [signerIdsArray]
+      );
+      signersWithDates = signersResult.rows.map(signer => {
+        const selected = signerIds.find(s => s.signerId === signer.id);
+        return {
+          ...signer,
+          signatureDate: selected?.date || new Date().toISOString().split('T')[0]
+        };
+      });
+      signaturesData = signersWithDates;
     }
-    console.log('🔍 Step 5 PASSED: Signatures processed');
+  } catch (e) {
+    console.warn('⚠️ Failed to parse additionalSigners:', e);
+  }
+}
+
+// ✅ FIXED: Process ALL uploaded files, with or without signers
+if (req.files && req.files.length > 0) {
+  const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
+  await ensureDirAsync(verifiedDir);
+  
+  for (const file of req.files) {
+    console.log('🔍 Processing file:', file.originalname);
+    try {
+      // Process with signatures (even if signersWithDates is empty, it still works)
+      const processedPath = await processDocumentWithSignatures(
+        file.path,
+        signersWithDates,  // Empty array is fine - just won't draw signatures
+        certNumber
+      );
+      reuploadedPaths.push(processedPath);
+      console.log('🔍 File processed:', processedPath);
+    } catch (procErr) {
+      console.error('🔍 FILE PROCESSING FAILED:', procErr);
+      throw procErr;
+    }
+  }
+}
+
+console.log('🔍 Step 5 PASSED: Signatures processed, reuploadedPaths:', reuploadedPaths);
 
     // Step 6: Save to database
     console.log('🔍 Step 6: Saving to database...');

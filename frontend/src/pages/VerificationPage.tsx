@@ -16,50 +16,55 @@ const VerificationPage = () => {
   const [activeTab, setActiveTab] = useState<"certificate" | "documents">("certificate");
 
   useEffect(() => {
-
-    
-    const verifyCertificate = async () => {
+  let isMounted = true;
+  
+  const verifyCertificate = async () => {
     try {
       setLoading(true);
       const response = await api.get(`/files/verify/${certificateNumber}`);
-      const data = response.data;
       
-      setVerificationData(data);
-      console.log('🔍 API Response:', response.data);
-console.log('🔍 data.upload:', data.upload);
-console.log('🔍 processedFiles after mapping:', processedFiles);
-      // ✅ Fixed: Trim baseURL
+      if (!isMounted) return;
+      setVerificationData(response.data);
+
+      // ✅ Trim baseURL to avoid trailing spaces
       const baseURL = "https://bangladesh-apostille-api.onrender.com".trim();
 
+      const buildUrl = (path: string) => {
+        if (!path) return null;
+        if (path.startsWith("http")) return path;
+        const cleanBase = baseURL.replace(/\/+$/, "");
+        const cleanPath = path.replace(/^\/+/, "");
+        return `${cleanBase}/${cleanPath}`;
+      };
+
       // 1. Certificate PDF (uses /uploads/certificates/ route)
-      if (data.certificatePath) {
-        setCertificateUrl(`${baseURL}/${data.certificatePath.replace(/^\/+/, '')}`);
+      if (response.data.certificatePath) {
+        setCertificateUrl(buildUrl(response.data.certificatePath));
       }
 
-      // 2. ✅ FIXED: Verified Documents - extract filename, use /verified/ route
-      if (data.upload && data.upload.verified_paths && data.upload.verified_paths.length > 0) {
-        const urls = data.upload.verified_paths.map((p: string) => {
-          // Extract just the filename: "uploads/verified/file.pdf" → "file.pdf"
-          const filename = p.split('/').pop() || p;
-          // Build URL using the PUBLIC /verified/ route
-          return `${baseURL}/verified/${filename}`;
-        });
-        console.log("🔗 Built document URLs:", urls); // Debug log
+      // 2. ✅ FIXED: Verified Documents - backend now sends just filenames
+      //    Frontend builds: https://.../verified/filename.pdf
+      if (response.data.reuploadedFiles?.length > 0) {
+        const urls = response.data.reuploadedFiles
+          .map((filename: string) => buildUrl(`verified/${filename}`)) // ← Prepend "verified/"
+          .filter(Boolean);
+        console.log('🔗 Built document URLs:', urls); // Debug
         setProcessedFiles(urls);
       } else {
-        console.warn("⚠️ No verified_paths found in response:", data.upload);
+        console.warn('⚠️ No reuploadedFiles in response:', response.data);
       }
-      
+
       setLoading(false);
     } catch (err: any) {
       console.error("Verification failed", err);
-      setError(err.response?.data?.message || "যাচাইকরণ ব্যর্থ হয়েছে");
+      setError(err.response?.data?.message || "সার্টিফিকেট পাওয়া যায়নি");
       setLoading(false);
     }
   };
 
-    verifyCertificate();
-  }, [certificateNumber]);
+  verifyCertificate();
+  return () => { isMounted = false; };
+}, [certificateNumber]);
 
   const handleDownloadCertificate = async () => {
     if (!certificateUrl) return;
