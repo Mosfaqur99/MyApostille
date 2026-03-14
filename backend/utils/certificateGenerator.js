@@ -1,4 +1,3 @@
-// backend/utils/certificateGenerator.js
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const QRCode = require('qrcode');
 const fontkit = require('@pdf-lib/fontkit');
