@@ -298,16 +298,13 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 
 // backend/routes/fileRoutes.js
 
+// GET /verify/:certificateNumber - PUBLIC verification endpoint
 router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
-    console.log('🔍 Fetching verified data for:', certificateNumber);
-    console.log('🔍 DB raw data:', {
-  verified_paths: upload.verified_paths,
-  reuploaded_file_paths: upload.reuploaded_file_paths
-});
-console.log('🔍 After cleanPaths:', cleanPaths(upload.verified_paths || upload.reuploaded_file_paths));
-    // 1. Fetch the data from the DB
+    console.log('🔍 Verification request for:', certificateNumber);
+
+    // 1. Fetch verified upload from DB
     const result = await pool.query(
       `SELECT uploads.*, users.name as user_name, verifier.name as verified_by_name
        FROM uploads 
@@ -321,42 +318,61 @@ console.log('🔍 After cleanPaths:', cleanPaths(upload.verified_paths || upload
       return res.status(404).json({ message: 'Certificate not found' });
     }
     
+    // ✅ Declare upload FIRST before using it anywhere
     const upload = result.rows[0];
 
-    // 2. Helper to clean paths from the DB (Handles both strings and [{path: '...'}] objects)
-    const cleanPaths = (data) => {
-      if (!data) return [];
-      // Parse if string, otherwise use as is
-      let array = typeof data === 'string' ? JSON.parse(data) : data;
-      if (!Array.isArray(array)) array = [array];
-      
-      return array.map(entry => {
-        // Extract the string path if it's an object
-        const p = (entry && typeof entry === 'object') ? entry.path : entry;
-        if (!p) return null;
-        // Clean Windows slashes and ensure it starts with 'uploads/'
-        return p.replace(/\\/g, '/').replace(/^.*uploads\//, "uploads/");
-      }).filter(Boolean);
+    // 2. Helper: Extract just the filename from paths like "uploads/verified/file.pdf"
+    const extractFilename = (p) => {
+      if (!p) return null;
+      // Remove any directory path, keep only filename
+      return p.split('/').pop()?.split('\\').pop() || null;
     };
+
+    // 3. Build response matching frontend expectations (VerificationPage.jsx)
+    const certificatePath = upload.certificate_pdf_path 
+      ? upload.certificate_pdf_path.replace(/\\/g, '/').replace(/^.*uploads[\\/]/i, "uploads/") 
+      : null;
     
-    // 3. Send back exactly what the frontend needs
+    // Handle reuploaded_files: support JSON string or array, extract filenames only
+    let reuploadedFiles = [];
+    if (upload.reuploaded_file_paths) {
+      try {
+        const paths = typeof upload.reuploaded_file_paths === 'string' 
+          ? JSON.parse(upload.reuploaded_file_paths) 
+          : upload.reuploaded_file_paths;
+        
+        if (Array.isArray(paths)) {
+          reuploadedFiles = paths
+            .map(extractFilename)
+            .filter(Boolean);
+        } else if (paths) {
+          const filename = extractFilename(paths);
+          if (filename) reuploadedFiles = [filename];
+        }
+      } catch (e) {
+        console.warn('⚠️ Failed to parse reuploaded_file_paths:', e);
+      }
+    }
+
+    // ✅ Debug logs (AFTER upload is declared)
+    console.log('🔍 DB data:', {
+      certificatePath,
+      reuploadedFiles,
+      raw_reuploaded: upload.reuploaded_file_paths
+    });
+
+    // 4. Send response - matches what VerificationPage.jsx expects
     res.json({
       certificateNumber: upload.certificate_number,
-      certificatePath: upload.certificate_pdf_path 
-        ? upload.certificate_pdf_path.replace(/\\/g, '/').replace(/^.*uploads\//, "uploads/") 
-        : null,
-      upload: {
-        // Logic: Use verified_paths if available, otherwise check reuploaded_file_paths
-        verified_paths: cleanPaths(upload.verified_paths || upload.reuploaded_file_paths),
-        file_type: upload.file_type
-      },
+      certificatePath: certificatePath,
+      reuploadedFiles: reuploadedFiles,  // ← Frontend reads THIS (array of filenames)
       verifiedAt: upload.verified_at,
       userName: upload.user_name,
       verifiedBy: upload.verified_by_name
     });
 
   } catch (err) {
-    console.error('Error fetching verification:', err);
+    console.error('❌ Error fetching verification:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
