@@ -231,40 +231,45 @@ api.get('/files/completed')
 
 // REPLACE downloadUserDocument in AdminDashboard.tsx:
 
-const downloadUserDocument = async (filePath: string, filename: string) => {
+const downloadUserDocuments = async (uploadId: number, filename: string) => {
   try {
     const token = localStorage.getItem('token');
     
-    // Extract just the filename from any path format
-    const fileNameOnly = filePath.replace(/^.*[\\\/]/, '');
-    
-    console.log('Downloading file:', fileNameOnly);
-    
-    // Use api instance which has correct baseURL
+    // Change: Now we call the specific download-originals endpoint by ID
     const response = await api.get(
-      `/files/uploads/${encodeURIComponent(fileNameOnly)}`,
+      `/files/download-originals/${uploadId}`,
       {
         headers: { 'x-auth-token': token },
-        responseType: 'blob'
+        responseType: 'blob' // Essential for receiving binary files (PDF/ZIP)
       }
     );
-    
-    // Create download
+
+    // 1. Get the content type from the header to decide the file extension
+    const contentType = response.headers['content-type'];
+    let extension = '.pdf'; // default
+    if (contentType === 'application/zip') {
+      extension = '.zip';
+    }
+
+    // 2. Create the blob and trigger download
     const blob = new Blob([response.data]);
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', filename || fileNameOnly);
+    
+    // Set filename (e.g., Document_123.pdf or Document_123.zip)
+    const finalFileName = filename ? `${filename}${extension}` : `documents_${uploadId}${extension}`;
+    link.setAttribute('download', finalFileName);
+    
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
     
     toast.success('Download started');
-    
   } catch (error: any) {
     console.error('Download failed', error);
-    toast.error(error.response?.data?.message || 'Download failed');
+    toast.error('Could not download file(s)');
   }
 };
   if (loading) {
@@ -360,16 +365,16 @@ const downloadUserDocument = async (filePath: string, filename: string) => {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <button
-  onClick={() => downloadUserDocument(upload.file_path, upload.original_filename || extractFilename(upload.file_path))}
+  onClick={() => downloadUserDocuments(upload.id, upload.original_filename || `Document_${upload.id}`)}
   className="inline-flex items-center px-3 py-1 border border-blue-600 text-blue-700 text-xs font-medium rounded-full bg-blue-50 hover:bg-blue-100 transition-colors"
-  title="Download Original Document"
+  title="Download Original Document(s)"
 >
   <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
   </svg>
   ডাউনলোড
 </button>
-                            <button
+           <button
                               onClick={() => handleVerifyClick(upload)}
                               className="px-3 py-1 border border-green-600 text-green-700 text-xs font-medium rounded-full bg-green-50 hover:bg-green-100 transition-colors"
                             >

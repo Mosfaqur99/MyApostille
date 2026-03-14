@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { verifyToken, authorizeRole } = require('../middleware/auth');
 const pool = require('../config/db');
+const AdmZip = require('adm-zip');
 
 // Import generators
 const { generateEApostilleCertificate } = require('../utils/certificateGenerator');
@@ -185,6 +186,49 @@ router.get('/pending', verifyToken, authorizeRole('admin'), async (req, res) => 
   } catch (err) {
     console.error('Error fetching pending uploads:', err.message);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+router.get('/download-originals/:uploadId', verifyToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const { uploadId } = req.params;
+    const result = await pool.query('SELECT file_paths FROM uploads WHERE id = $1', [uploadId]);
+
+    if (result.rows.length === 0) return res.status(404).json({ message: "Not found" });
+
+    const rawPaths = result.rows[0].file_paths;
+    let filePaths = [];
+
+    // Parse logic to handle single string or JSON array
+    if (typeof rawPaths === 'string' && rawPaths.startsWith('[')) {
+      filePaths = JSON.parse(rawPaths);
+    } else {
+      filePaths = Array.isArray(rawPaths) ? rawPaths : [rawPaths];
+    }
+
+    if (filePaths.length === 1) {
+      // Download single file
+      const filePath = path.join(__dirname, '..', filePaths[0]);
+      return res.download(filePath);
+    } else {
+      // Download multiple files as ZIP
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      filePaths.forEach(p => {
+        const fullPath = path.join(__dirname, '..', p);
+        if (fs.existsSync(fullPath)) zip.addLocalFile(fullPath);
+      });
+      
+      const zipBuffer = zip.toBuffer();
+      res.set({
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename=originals_${uploadId}.zip`
+      });
+      return res.send(zipBuffer);
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
