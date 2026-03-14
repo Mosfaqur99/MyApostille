@@ -70,7 +70,17 @@ dirs.forEach(dir => {
 process.env.UPLOAD_DIR = uploadBaseDir;
 
 // Static files
-app.use("/uploads", express.static(uploadBaseDir));
+app.use(
+  "/uploads",
+  express.static(uploadBaseDir, {
+    setHeaders: (res) => {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Headers", "*");
+      res.setHeader("X-Frame-Options", "ALLOWALL");
+      res.setHeader("Content-Disposition", "inline");
+    },
+  })
+);
 
 console.log('Upload directory:', uploadBaseDir);
 
