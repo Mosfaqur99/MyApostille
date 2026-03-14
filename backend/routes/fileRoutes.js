@@ -218,17 +218,23 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
   }
 });
 
-// Get verification details (public)
+
+// Get verification details (public) - FIXED
 router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
+    console.log('🔍 Verification request for:', certificateNumber);
+    
+    // Clean the certificate number (remove 'cert_' prefix if present)
+    const cleanCertNumber = certificateNumber.replace(/^cert_/, '');
     
     const uploads = await pool.query(
       `SELECT uploads.*, users.name as user_name 
        FROM uploads 
        JOIN users ON uploads.user_id = users.id
-       WHERE uploads.certificate_number = $1 AND uploads.status = $2`,
-      [certificateNumber, 'verified']
+       WHERE (uploads.certificate_number = $1 OR uploads.certificate_number = $2) 
+       AND uploads.status = $3`,
+      [certificateNumber, cleanCertNumber, 'verified']
     );
     
     if (uploads.rows.length === 0) {
@@ -236,12 +242,61 @@ router.get('/verify/:certificateNumber', async (req, res) => {
     }
     
     const upload = uploads.rows[0];
+    console.log('✅ Found certificate:', upload.certificate_number);
+    
+    // FIX: Reconstruct certificate path if missing
+    let certificatePath = upload.certificate_pdf_path;
+    if (!certificatePath && upload.certificate_data) {
+      const certData = typeof upload.certificate_data === 'string' 
+        ? JSON.parse(upload.certificate_data) 
+        : upload.certificate_data;
+      
+      const certNum = certData.certificateNumber || upload.certificate_number;
+      if (certNum) {
+        certificatePath = `/uploads/certificates/certificate-${certNum}.pdf`;
+        console.log('🔧 Reconstructed certificate path:', certificatePath);
+      }
+    }
+    
+    // FIX: Convert absolute file paths to web-accessible URLs
+    let reuploadedFiles = [];
+    try {
+      if (upload.reuploaded_file_paths) {
+        const rawPaths = typeof upload.reuploaded_file_paths === 'string'
+          ? JSON.parse(upload.reuploaded_file_paths)
+          : upload.reuploaded_file_paths;
+        
+        console.log('🔧 Raw paths:', rawPaths);
+        
+        reuploadedFiles = rawPaths.map((filePath) => {
+          if (typeof filePath !== 'string') return filePath;
+          
+          // If already relative URL, use as-is
+          if (filePath.startsWith('/uploads/')) {
+            return filePath;
+          }
+          
+          // Convert absolute path to API URL
+          const filename = path.basename(filePath);
+          if (filePath.includes('/verified/')) {
+            return `/api/files/verified/${filename}`;
+          } else if (filePath.includes('/original/')) {
+            return `/api/files/uploads/${filename}`;
+          }
+          return filePath;
+        });
+        
+        console.log('🔧 Converted URLs:', reuploadedFiles);
+      }
+    } catch (e) {
+      console.warn('Could not parse reuploaded_file_paths:', e.message);
+    }
     
     res.json({
       certificateNumber: upload.certificate_number,
-      certificatePath: upload.certificate_pdf_path,
+      certificatePath: certificatePath,  // Now has correct value
       certificateData: upload.certificate_data,
-      reuploadedFiles: upload.reuploaded_file_paths || [],
+      reuploadedFiles: reuploadedFiles,  // Now has API URLs
       signaturesData: upload.additional_signatures_data || [],
       verifiedAt: upload.verified_at,
       userName: upload.user_name
@@ -318,9 +373,19 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     
     console.log('🔍 Calling generateEApostilleCertificate...');
     let certResult;
+     let certFilePath;
+    let relativeCertPath;
     try {
       certResult = await generateEApostilleCertificate(certificateData);
       console.log('🔍 Step 4 PASSED: Certificate generated', certResult.filePath);
+      const certDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'certificates');
+      await ensureDirAsync(certDir);
+      const certFileName = `certificate-${certNumber}.pdf`;
+      certFilePath = path.join(certDir, certFileName);
+      relativeCertPath = `/uploads/certificates/${certFileName}`;
+       await fs.promises.writeFile(certFilePath, certResult.pdfBytes);
+      console.log('🔍 Certificate saved to:', certFilePath);
+      console.log('🔍 Relative path:', relativeCertPath);
     } catch (certErr) {
       console.error('🔍 CERTIFICATE GENERATION FAILED:', certErr);
       console.error('🔍 Stack:', certErr.stack);
@@ -382,6 +447,18 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     // Step 6: Save to database
     console.log('🔍 Step 6: Saving to database...');
     try {
+            // FIX: Save certificate PDF to disk first
+      const certDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'certificates');
+      await ensureDirAsync(certDir);
+      
+      const certFileName = `certificate-${certNumber}.pdf`;
+      const certFilePath = path.join(certDir, certFileName);
+      const relativeCertPath = `/uploads/certificates/${certFileName}`;
+      
+      // Write PDF bytes to file
+      await fs.promises.writeFile(certFilePath, certResult.pdfBytes);
+      console.log('🔍 Certificate saved to disk:', certFilePath);
+
       await pool.query(
         `UPDATE uploads SET 
           status = 'verified',
@@ -401,7 +478,7 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
         [
           req.user.id,
           JSON.stringify(certificateData),
-          certResult.filePath,
+          relativeCertPath,  // ← FIXED: Use the path we created, not certResult.filePath
           certNumber,
           JSON.stringify(reuploadedPaths),
           JSON.stringify(signaturesData),
@@ -431,10 +508,10 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     console.log('🔍 Step 7 PASSED: Cleanup done');
 
     console.log('✅ VERIFICATION COMPLETE');
-    res.json({ 
+          res.json({ 
       message: 'e-APOSTILLE Certificate generated successfully',
       certificateNumber: certNumber,
-      certificatePath: certResult.filePath
+      certificatePath: relativeCertPath  // ← FIXED
     });
     
   } catch (err) {
@@ -578,6 +655,49 @@ router.get('/uploads/:filename', verifyToken, async (req, res) => {
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'private, max-age=3600');
     // NO Content-Disposition header (this makes it view, not download)
+    res.sendFile(path.resolve(filePath));
+    
+  } catch (error) {
+    console.error('❌ File serve error:', error);
+    res.status(500).json({ message: 'Error serving file' });
+  }
+});
+
+// Serve verified files (public access for viewing processed documents)
+router.get('/verified/:filename', async (req, res) => {
+  try {
+    const { filename } = req.params;
+    
+    // Security: Prevent directory traversal
+    if (filename.includes('..') || filename.includes('/')) {
+      return res.status(400).json({ message: 'Invalid filename' });
+    }
+    
+    const uploadDir = process.env.UPLOAD_DIR || '/tmp/uploads';
+    const filePath = path.join(uploadDir, 'verified', filename);
+    
+    console.log('📥 Verified file request:', filename);
+    console.log('📁 Full path:', filePath);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      console.log('❌ File not found:', filePath);
+      return res.status(404).json({ message: 'File not found' });
+    }
+    
+    // Set content type
+    const ext = path.extname(filename).toLowerCase();
+    const contentType = {
+      '.pdf': 'application/pdf',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png'
+    }[ext] || 'application/octet-stream';
+    
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Content-Disposition', 'inline'); // For viewing in iframe
+    
     res.sendFile(path.resolve(filePath));
     
   } catch (error) {
