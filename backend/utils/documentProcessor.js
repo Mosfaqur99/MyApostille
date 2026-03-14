@@ -4,14 +4,30 @@ const fontkit = require('@pdf-lib/fontkit');
 const fs = require('fs');
 const path = require('path');
 
-// Configuration for different page sizes
+// ==========================================
+// TEXT SIZE CONFIGURATION - ADJUST THESE VALUES
+// ==========================================
+// To change text sizes, modify these constants:
+// - DATE_SIZE: Date text size (default: 6)
+// - NAME_SIZE: Signer name size (default: 7) 
+// - DESIGNATION_SIZE: Designation text size (default: 6)
+// - ATTESTED_IMG_HEIGHT: Height of attested image (default: 15)
+// Increase numbers to make text bigger, decrease to make smaller
+
+const TEXT_SIZES = {
+  date: 7,        // Date text size
+  name: 6,        // Signer name size (bold)
+  designation: 6, // Designation text size
+  attestedImgHeight: 15 // Height of attested image in points
+};
+
+// Layout configuration
 const LAYOUT_CONFIG = {
   mobile: {
     maxSignaturesPerRow: 2,
     sigBoxWidth: 120,
     sigHeight: 30,
-    textSize: 7,
-    yOffset: 80, // Higher up on mobile
+    yOffset: 80,
     verticalSpacing: 90,
     marginX: 20
   },
@@ -19,7 +35,6 @@ const LAYOUT_CONFIG = {
     maxSignaturesPerRow: 3,
     sigBoxWidth: 130,
     sigHeight: 32,
-    textSize: 8,
     yOffset: 70,
     verticalSpacing: 85,
     marginX: 30
@@ -28,7 +43,6 @@ const LAYOUT_CONFIG = {
     maxSignaturesPerRow: 4,
     sigBoxWidth: 140,
     sigHeight: 35,
-    textSize: 9,
     yOffset: 60,
     verticalSpacing: 80,
     marginX: 40
@@ -56,46 +70,29 @@ function getAssetsPath() {
   return path.join(__dirname, '..', 'assets');
 }
 
-// Detect device type based on page dimensions
 function getDeviceType(width, height) {
   const minDim = Math.min(width, height);
-  const maxDim = Math.max(width, height);
-  
-  // Mobile: width < 600 (typical phone portrait)
   if (minDim < 600) return 'mobile';
-  // Tablet: width 600-900
   if (minDim < 900) return 'tablet';
-  // Desktop: larger
   return 'desktop';
 }
 
-// Calculate responsive layout
 function calculateLayout(pageWidth, pageHeight, numSigners) {
   const deviceType = getDeviceType(pageWidth, pageHeight);
   const config = LAYOUT_CONFIG[deviceType];
   
-  // Determine how many rows needed
   const sigsPerRow = Math.min(numSigners, config.maxSignaturesPerRow);
-  const numRows = Math.ceil(numSigners / sigsPerRow);
+  const numRows = Math.ceil(numSigners / config.maxSignaturesPerRow);
   
-  // Calculate actual box width to fit page
   const availableWidth = pageWidth - (config.marginX * 2);
   const actualBoxWidth = Math.min(
     config.sigBoxWidth,
-    Math.floor(availableWidth / sigsPerRow) - 10 // 10px gap
+    Math.floor(availableWidth / sigsPerRow) - 10
   );
   
-  // Calculate starting X to center the row
   const totalRowWidth = (sigsPerRow * actualBoxWidth) + ((sigsPerRow - 1) * 10);
   const startX = (pageWidth - totalRowWidth) / 2;
-  
-  // Calculate Y positions (from bottom up, or top down depending on space)
-  // Start from bottom but ensure we don't go below page
-  const signatureBlockHeight = numRows * config.verticalSpacing;
-  const startY = Math.max(
-    config.yOffset,
-    config.yOffset // Keep consistent bottom margin
-  );
+  const startY = Math.max(config.yOffset, config.yOffset);
   
   return {
     deviceType,
@@ -103,7 +100,6 @@ function calculateLayout(pageWidth, pageHeight, numSigners) {
     numRows,
     boxWidth: actualBoxWidth,
     boxHeight: config.sigHeight,
-    textSize: config.textSize,
     startX,
     startY,
     verticalSpacing: config.verticalSpacing,
@@ -146,10 +142,10 @@ async function processDocumentWithSignatures(filePath, signers, certNumber = nul
   if (ext === '.pdf') {
     const pdfBytes = fs.readFileSync(filePath);
     pdfDoc = await PDFDocument.load(pdfBytes);
-    await processPDF(pdfDoc, signers, certNumber);
+    await processPDF(pdfDoc, signers);
   } else if (['.jpg', '.jpeg', '.png'].includes(ext)) {
     pdfDoc = await PDFDocument.create();
-    await processImage(pdfDoc, filePath, signers, certNumber);
+    await processImage(pdfDoc, filePath, signers);
   } else {
     throw new Error(`Unsupported file type: ${ext}`);
   }
@@ -165,13 +161,28 @@ async function processDocumentWithSignatures(filePath, signers, certNumber = nul
   return `verified/${outputFileName}`;
 }
 
-async function processPDF(pdfDoc, signers, certNumber = null) {
+async function processPDF(pdfDoc, signers) {
   pdfDoc.registerFontkit(fontkit);
   const pages = pdfDoc.getPages();
   
   let customFont, boldFont;
   const assetsPath = getAssetsPath();
   const purpleColor = rgb(76/255, 32/255, 114/255);
+  
+  // Load attested image once
+  let attestedImg = null;
+  try {
+    const attestedPath = path.join(assetsPath, 'signatures', 'documents', 'attested_text.png');
+    if (fs.existsSync(attestedPath)) {
+      const attestedBytes = fs.readFileSync(attestedPath);
+      attestedImg = await pdfDoc.embedPng(attestedBytes);
+      console.log('✅ Loaded attested_text.png');
+    } else {
+      console.warn('⚠️ attested_text.png not found at:', attestedPath);
+    }
+  } catch (e) {
+    console.warn('⚠️ Failed to load attested image:', e.message);
+  }
   
   try {
     const fontPath = path.join(assetsPath, 'fonts', 'kalpurush.ttf');
@@ -195,23 +206,10 @@ async function processPDF(pdfDoc, signers, certNumber = null) {
 
   for (const page of pages) {
     const { width, height } = page.getSize();
-    
-    // Draw certificate number at top
-    if (certNumber) {
-      page.drawText(`Cert: ${certNumber}`, { 
-        x: 40, 
-        y: height - 30, 
-        size: 10, 
-        font: boldFont,
-        color: purpleColor
-      });
-    }
 
-    // Calculate responsive layout for this page size
     const layout = calculateLayout(width, height, signers.length);
     console.log(`📐 Page ${width}x${height} detected as ${layout.deviceType}, using ${layout.sigsPerRow} per row`);
 
-    // Draw signatures in grid layout
     for (let i = 0; i < signers.length; i++) {
       const signer = signers[i];
       const row = Math.floor(i / layout.sigsPerRow);
@@ -227,29 +225,29 @@ async function processPDF(pdfDoc, signers, certNumber = null) {
         y, 
         layout.boxWidth, 
         layout.boxHeight,
-        layout.textSize,
         customFont,
         boldFont,
         purpleColor,
-        assetsPath
+        assetsPath,
+        attestedImg
       );
     }
   }
 }
 
-async function drawSignatureBox(page, signer, x, y, boxWidth, sigHeight, textSize, customFont, boldFont, color, assetsPath) {
-  // 1. "Attested" Label (centered)
-  const attestedText = "Attested";
-  const attestedWidth = boldFont.widthOfTextAtSize(attestedText, textSize + 2);
-  page.drawText(attestedText, {
-    x: x + (boxWidth - attestedWidth) / 2,
-    y: y + sigHeight + 25,
-    size: textSize + 2,
-    font: boldFont,
-    color: color
-  });
+async function drawSignatureBox(page, signer, x, y, boxWidth, sigHeight, customFont, boldFont, color, assetsPath, attestedImg) {
+  // 1. Attested Image (instead of text)
+  if (attestedImg) {
+    const imgWidth = (TEXT_SIZES.attestedImgHeight * attestedImg.width) / attestedImg.height;
+    page.drawImage(attestedImg, {
+      x: x + (boxWidth - imgWidth) / 2,
+      y: y + sigHeight + 20, // Position above signature
+      width: imgWidth,
+      height: TEXT_SIZES.attestedImgHeight
+    });
+  }
 
-  // 2. Signature Image (scaled to fit box)
+  // 2. Signature Image
   try {
     const sigPath = path.join(assetsPath, 'signatures', 'documents', signer.signature_image);
     if (fs.existsSync(sigPath)) {
@@ -258,9 +256,8 @@ async function drawSignatureBox(page, signer, x, y, boxWidth, sigHeight, textSiz
         ? await page.doc.embedPng(sigBytes)
         : await page.doc.embedJpg(sigBytes);
       
-      // Calculate scaling to fit within boxWidth x sigHeight
       const scale = Math.min(
-        (boxWidth - 20) / sigImg.width,  // 10px padding each side
+        (boxWidth - 20) / sigImg.width,
         sigHeight / sigImg.height
       );
       
@@ -278,61 +275,59 @@ async function drawSignatureBox(page, signer, x, y, boxWidth, sigHeight, textSiz
     console.warn(`⚠️ Signature image missing for ${signer.name}:`, e.message);
   }
 
-  // 3. Date (centered)
+  // 3. Date (using TEXT_SIZES.date)
   const dateText = formatSignatureDate(signer.signatureDate || new Date());
-  const dateWidth = customFont.widthOfTextAtSize(dateText, textSize);
+  const dateWidth = customFont.widthOfTextAtSize(dateText, TEXT_SIZES.date);
   page.drawText(dateText, {
     x: x + (boxWidth - dateWidth) / 2,
-    y: y - 12,
-    size: textSize,
+    y: y - 10, // Reduced spacing for smaller text
+    size: TEXT_SIZES.date,
     font: customFont,
     color: color
   });
 
-  // 4. Name (truncate if too long)
+  // 4. Name (using TEXT_SIZES.name - bold)
   let nameText = signer.name || '';
   const maxNameWidth = boxWidth - 10;
-  while (boldFont.widthOfTextAtSize(nameText, textSize) > maxNameWidth && nameText.length > 3) {
+  while (boldFont.widthOfTextAtSize(nameText, TEXT_SIZES.name) > maxNameWidth && nameText.length > 3) {
     nameText = nameText.slice(0, -4) + '...';
   }
-  const nameWidth = boldFont.widthOfTextAtSize(nameText, textSize);
+  const nameWidth = boldFont.widthOfTextAtSize(nameText, TEXT_SIZES.name);
   page.drawText(nameText, {
     x: x + (boxWidth - nameWidth) / 2,
-    y: y - 24,
-    size: textSize,
+    y: y - 18, // Tighter spacing
+    size: TEXT_SIZES.name,
     font: boldFont,
     color: color
   });
 
-  // 5. Designation (truncate if too long)
+  // 5. Designation (using TEXT_SIZES.designation)
   let desigText = signer.designation || '';
-  while (customFont.widthOfTextAtSize(desigText, textSize - 1) > maxNameWidth && desigText.length > 3) {
+  while (customFont.widthOfTextAtSize(desigText, TEXT_SIZES.designation) > maxNameWidth && desigText.length > 3) {
     desigText = desigText.slice(0, -4) + '...';
   }
-  const desigWidth = customFont.widthOfTextAtSize(desigText, textSize - 1);
+  const desigWidth = customFont.widthOfTextAtSize(desigText, TEXT_SIZES.designation);
   page.drawText(desigText, {
     x: x + (boxWidth - desigWidth) / 2,
-    y: y - 36,
-    size: textSize - 1,
+    y: y - 26, // Tighter spacing
+    size: TEXT_SIZES.designation,
     font: customFont,
     color: color
   });
 }
 
-async function processImage(pdfDoc, imagePath, signers, certNumber = null) {
+async function processImage(pdfDoc, imagePath, signers) {
   const imageBytes = fs.readFileSync(imagePath);
   const isPng = imagePath.toLowerCase().endsWith('.png');
   const image = isPng 
     ? await pdfDoc.embedPng(imageBytes) 
     : await pdfDoc.embedJpg(imageBytes);
 
-  // Create page with image dimensions + space for signatures
-  const sigSpace = Math.min(400, signers.length * 100); // Estimate signature space
+  const sigSpace = Math.min(400, signers.length * 100);
   const pageHeight = image.height + sigSpace;
   
   const page = pdfDoc.addPage([image.width, pageHeight]);
   
-  // Draw image at top
   page.drawImage(image, { 
     x: 0, 
     y: sigSpace, 
@@ -340,8 +335,7 @@ async function processImage(pdfDoc, imagePath, signers, certNumber = null) {
     height: image.height 
   });
   
-  // Process signatures on this page
-  await processPDF(pdfDoc, signers, certNumber);
+  await processPDF(pdfDoc, signers);
 }
 
 module.exports = {
