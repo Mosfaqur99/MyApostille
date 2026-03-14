@@ -381,228 +381,171 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 // CRITICAL: Verify endpoint - SIMPLIFIED AND FIXED
 // REPLACE the entire verify route with this diagnostic version:
 
+// POST /verify/:id - COMPLETELY FIXED VERSION
 router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('reuploadedFiles', 10), async (req, res) => {
   const uploadId = req.params.id;
-  
-  console.log('🔍 DIAGNOSTIC: Verify endpoint called');
-  console.log('🔍 Upload ID:', uploadId);
-  console.log('🔍 User:', req.user?.id, req.user?.email);
-  console.log('🔍 Files received:', req.files?.length || 0);
-  console.log('🔍 Body keys:', Object.keys(req.body));
+  console.log('🔍 Verify endpoint called for upload:', uploadId);
   
   try {
-    // Step 1: Get upload
-    console.log('🔍 Step 1: Fetching upload...');
-    const uploads = await pool.query('SELECT * FROM uploads WHERE id = $1', [uploadId]);
-    if (uploads.rows.length === 0) {
-      console.log('🔍 ERROR: Upload not found');
+    // ========== Step 1: Fetch upload ==========
+    const uploadResult = await pool.query('SELECT * FROM uploads WHERE id = $1', [uploadId]);
+    if (uploadResult.rows.length === 0) {
       return res.status(404).json({ message: 'Upload not found' });
     }
-    const upload = uploads.rows[0];
-    console.log('🔍 Step 1 PASSED: Found upload', upload.id);
+    const upload = uploadResult.rows[0];
 
-    // Step 2: Validate fields
-    console.log('🔍 Step 2: Validating fields...');
+    // ========== Step 2: Validate required fields ==========
     const {
-      documentIssuer,
-      documentTitle,
-      documentLocation,
-      certificateLocation,
-      certificateDate,
-      authorityName,
+      documentIssuer, documentTitle, documentLocation,
+      certificateLocation, certificateDate, authorityName,
       additionalSigners
     } = req.body;
     
-    if (!documentIssuer || !documentTitle || !documentLocation || 
-        !certificateLocation || !certificateDate || !authorityName) {
-      console.log('🔍 ERROR: Missing fields', { documentIssuer, documentTitle, documentLocation, certificateLocation, certificateDate, authorityName });
-      return res.status(400).json({ message: 'All certificate fields are required' });
+    const requiredFields = { documentIssuer, documentTitle, documentLocation, certificateLocation, certificateDate, authorityName };
+    const missing = Object.entries(requiredFields).filter(([_, val]) => !val).map(([key]) => key);
+    if (missing.length > 0) {
+      return res.status(400).json({ message: `Missing fields: ${missing.join(', ')}` });
     }
-    console.log('🔍 Step 2 PASSED: Fields valid');
 
     if (!req.files || req.files.length === 0) {
-      console.log('🔍 ERROR: No files uploaded');
-      return res.status(400).json({ message: 'Please re-upload documents with stamps' });
+      return res.status(400).json({ message: 'Please re-upload documents' });
     }
-    console.log('🔍 Step 3 PASSED: Files present');
 
-    // Step 4: Generate certificate
-    console.log('🔍 Step 4: Generating certificate...');
+    // ========== Step 3: Generate certificate (SAVE IMMEDIATELY) ==========
     const certNumber = generateCertNumber();
-    console.log('🔍 Certificate number:', certNumber);
-
     const certificateData = {
-      documentIssuer,
-      actingCapacity: documentTitle,
-      sealLocation: documentLocation,
-      certificateLocation,
-      certificateDate,
-      authorityName,
+      documentIssuer, actingCapacity: documentTitle, sealLocation: documentLocation,
+      certificateLocation, certificateDate, authorityName,
       certificateNumber: certNumber,
       baseUrl: `${req.protocol}://${req.get('host')}`
     };
-    
-    console.log('🔍 Calling generateEApostilleCertificate...');
-    let certResult;
-     let certFilePath;
-    let relativeCertPath;
-    try {
-      certResult = await generateEApostilleCertificate(certificateData);
-      console.log('🔍 Step 4 PASSED: Certificate generated', certResult.filePath);
-      // const certDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'certificates');
-      // await ensureDirAsync(certDir);
-      // const certFileName = `certificate-${certNumber}.pdf`;
-      // certFilePath = path.join(certDir, certFileName);
-      // relativeCertPath = `/uploads/certificates/${certFileName}`;
-      //  await fs.promises.writeFile(certFilePath, certResult.pdfBytes);
-      // console.log('🔍 Certificate saved to:', certFilePath);
-      console.log('🔍 Relative path:', relativeCertPath);
-    } catch (certErr) {
-      console.error('🔍 CERTIFICATE GENERATION FAILED:', certErr);
-      console.error('🔍 Stack:', certErr.stack);
-      throw certErr;
-    }
 
-    // Step 5: Process signatures on uploaded documents
-console.log('🔍 Step 5: Processing signatures...');
-let reuploadedPaths = [];
-let signaturesData = [];
-
-// Parse additional signers if provided
-let signersWithDates = [];
-if (additionalSigners) {
-  try {
-    const signerIds = JSON.parse(additionalSigners);
-    if (signerIds.length > 0) {
-      const signerIdsArray = signerIds.map(s => s.signerId);
-      const signersResult = await pool.query(
-        'SELECT * FROM additional_signers WHERE id = ANY($1)',
-        [signerIdsArray]
-      );
-      signersWithDates = signersResult.rows.map(signer => {
-        const selected = signerIds.find(s => s.signerId === signer.id);
-        return {
-          ...signer,
-          signatureDate: selected?.date || new Date().toISOString().split('T')[0]
-        };
-      });
-      signaturesData = signersWithDates;
-    }
-  } catch (e) {
-    console.warn('⚠️ Failed to parse additionalSigners:', e);
-  }
-}
-
-// ✅ FIXED: Process ALL uploaded files, with or without signers
-if (req.files && req.files.length > 0) {
-  const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
-  await ensureDirAsync(verifiedDir);
-  
-  for (const file of req.files) {
-    console.log('🔍 Processing file:', file.originalname);
-    try {
-      // Process with signatures (even if signersWithDates is empty, it still works)
-      const processedPath = await processDocumentWithSignatures(
-        file.path,
-        signersWithDates,  // Empty array is fine - just won't draw signatures
-        certNumber
-      );
-      reuploadedPaths.push(processedPath);
-      console.log('🔍 File processed:', processedPath);
-    } catch (procErr) {
-      console.error('🔍 FILE PROCESSING FAILED:', procErr);
-      throw procErr;
-    }
-  }
-}
-
-console.log('🔍 Step 5 PASSED: Signatures processed, reuploadedPaths:', reuploadedPaths);
-
-    // Step 6: Save to database
-    console.log('🔍 Step 6: Saving to database...');
-    try {
-            // FIX: Save certificate PDF to disk first
-      const certDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'certificates');
-      await ensureDirAsync(certDir);
-      
-      const certFileName = `certificate-${certNumber}.pdf`;
-      const certFilePath = path.join(certDir, certFileName);
-      const relativeCertPath = `/uploads/certificates/${certFileName}`;
-      
-      // Write PDF bytes to file
-      await fs.promises.writeFile(certFilePath, certResult.pdfBytes);
-      console.log('🔍 Certificate saved to disk:', certFilePath);
-
-      await pool.query(
-        `UPDATE uploads SET 
-          status = 'verified',
-          verified_by = $1,
-          verified_at = NOW(),
-          certificate_data = $2,
-          certificate_pdf_path = $3,
-          certificate_number = $4,
-          reuploaded_file_paths = $5,
-          additional_signatures_data = $6,
-          document_issuer = $7,
-          document_title = $8,
-          document_location = $9,
-          certificate_date = $10,
-          authority_name = $11
-        WHERE id = $12`,
-        [
-          req.user.id,
-          JSON.stringify(certificateData),
-          relativeCertPath,  // ← FIXED: Use the path we created, not certResult.filePath
-          certNumber,
-          JSON.stringify(reuploadedPaths),
-          JSON.stringify(signaturesData),
-          documentIssuer,
-          documentTitle,
-          certificateLocation,
-          certificateDate,
-          authorityName,
-          uploadId
-        ]
-      );
-      console.log('🔍 Step 6 PASSED: Database updated');
-    } catch (dbErr) {
-      console.error('🔍 DATABASE ERROR:', dbErr);
-      throw dbErr;
+    // Generate and save certificate ONCE
+    const certResult = await generateEApostilleCertificate(certificateData);
+    if (!certResult || !certResult.pdfBytes) {
+      throw new Error('Certificate generator returned invalid result');
     }
     
-    // Step 7: Cleanup
-    console.log('🔍 Step 7: Cleaning up...');
-    if (upload.file_paths && Array.isArray(upload.file_paths)) {
-      for (const file of upload.file_paths) {
-        if (file.path) deleteFileAsync(file.path).catch(e => console.log('Cleanup error:', e.message));
+    const certDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'certificates');
+    await ensureDirAsync(certDir);
+    const certFileName = `certificate-${certNumber}.pdf`;
+    const certFilePath = path.join(certDir, certFileName);
+    const relativeCertPath = `/uploads/certificates/${certFileName}`;  // ← Defined ONCE, used everywhere
+    
+    await fs.promises.writeFile(certFilePath, certResult.pdfBytes);
+    console.log('✅ Certificate saved:', relativeCertPath);
+
+    // ========== Step 4: Process document signatures (WITH OR WITHOUT SIGNERS) ==========
+    let reuploadedPaths = [];
+    let signaturesData = [];
+    
+    // Parse additional signers (optional)
+    let signersWithDates = [];
+    if (additionalSigners) {
+      try {
+        const signerIds = JSON.parse(additionalSigners);
+        if (signerIds.length > 0) {
+          const signerIdsArray = signerIds.map(s => s.signerId);
+          const signersResult = await pool.query(
+            'SELECT * FROM additional_signers WHERE id = ANY($1)',
+            [signerIdsArray]
+          );
+          signersWithDates = signersResult.rows.map(signer => ({
+            ...signer,
+            signatureDate: signerIds.find(s => s.signerId === signer.id)?.date || new Date().toISOString().split('T')[0]
+          }));
+          signaturesData = signersWithDates;
+        }
+      } catch (e) {
+        console.warn('⚠️ Failed to parse additionalSigners:', e.message);
       }
-    } else if (upload.file_path) {
-      deleteFileAsync(upload.file_path).catch(e => console.log('Cleanup error:', e.message));
     }
-    console.log('🔍 Step 7 PASSED: Cleanup done');
 
-    console.log('✅ VERIFICATION COMPLETE');
-          res.json({ 
+    // ✅ Process ALL files regardless of signers (with defensive font handling)
+    if (req.files && req.files.length > 0) {
+      const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
+      await ensureDirAsync(verifiedDir);
+      
+      for (const file of req.files) {
+        try {
+          console.log('🔍 Processing file:', file.originalname);
+          const processedPath = await processDocumentWithSignatures(
+            file.path,
+            signersWithDates,  // Empty array is fine - just won't draw signatures
+            certNumber
+          );
+          reuploadedPaths.push(processedPath);
+          console.log('✅ File processed:', processedPath);
+        } catch (procErr) {
+          // ⚠️ Log but don't fail entire verification if one file fails
+          console.error('⚠️ File processing failed (continuing):', file.originalname, procErr.message);
+        }
+      }
+    }
+    console.log('🔍 reuploadedPaths final:', reuploadedPaths);
+
+    // ========== Step 5: Save to database ==========
+    await pool.query(
+      `UPDATE uploads SET
+        status = 'verified',
+        verified_by = $1,
+        verified_at = NOW(),
+        certificate_data = $2,
+        certificate_pdf_path = $3,
+        certificate_number = $4,
+        reuploaded_file_paths = $5,
+        additional_signatures_data = $6,
+        document_issuer = $7,
+        document_title = $8,
+        document_location = $9,
+        certificate_date = $10,
+        authority_name = $11
+       WHERE id = $12`,
+      [
+        req.user.id,
+        JSON.stringify(certificateData),
+        relativeCertPath,  // ← Uses the ONE defined variable
+        certNumber,
+        JSON.stringify(reuploadedPaths),
+        JSON.stringify(signaturesData),
+        documentIssuer, documentTitle, documentLocation, certificateDate, authorityName,
+        uploadId
+      ]
+    );
+    console.log('✅ Database updated successfully');
+
+    // ========== Step 6: Cleanup original files ==========
+    if (upload.file_paths) {
+      const files = typeof upload.file_paths === 'string' 
+        ? JSON.parse(upload.file_paths) 
+        : upload.file_paths;
+      for (const f of Array.isArray(files) ? files : [files]) {
+        if (f?.path) await deleteFileAsync(f.path).catch(() => {});
+      }
+    }
+
+    // ========== Step 7: Send success response ==========
+    console.log('✅ VERIFICATION COMPLETE for cert:', certNumber);
+    res.json({
       message: 'e-APOSTILLE Certificate generated successfully',
       certificateNumber: certNumber,
-      certificatePath: relativeCertPath  // ← FIXED
+      certificatePath: relativeCertPath  // ← Now properly defined!
     });
-    
+
   } catch (err) {
-    console.error('❌ VERIFICATION FAILED:', err);
+    console.error('❌ VERIFICATION FAILED:', err.message);
     console.error('❌ Stack:', err.stack);
-    console.error('❌ Message:', err.message);
     
     // Cleanup on error
     if (req.files) {
       for (const file of req.files) {
-        deleteFileAsync(file.path).catch(console.error);
+        await deleteFileAsync(file.path).catch(() => {});
       }
     }
-    res.status(500).json({ 
-      message: 'Certificate generation failed', 
-      error: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    
+    res.status(500).json({
+      message: 'Verification failed',
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Server error'
     });
   }
 });

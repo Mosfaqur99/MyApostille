@@ -94,13 +94,30 @@ async function processDocumentWithSignatures(filePath, signers, certNumber = nul
  */
 async function processPDF(pdfDoc, signers, certNumber = null) {
     pdfDoc.registerFontkit(fontkit);
-    const pages = pdfDoc.getPages();
+  const pages = pdfDoc.getPages();
+  
+  let customFont, boldFont;
+  const assetsPath = getAssetsPath();
+  
+  try {
+    const fontPath = path.join(assetsPath, 'fonts', 'kalpurush.ttf');
+    const boldFontPath = path.join(assetsPath, 'fonts', 'kalpurush-bold.ttf');
     
-    // Load Fonts
-    const fontBytes = fs.readFileSync(path.join(getAssetsPath(), 'fonts', 'kalpurush.ttf'));
-    const boldFontBytes = fs.readFileSync(path.join(getAssetsPath(), 'fonts', 'kalpurush-bold.ttf'));
-    const customFont = await pdfDoc.embedFont(fontBytes);
-    const boldFont = await pdfDoc.embedFont(boldFontBytes);
+    if (fs.existsSync(fontPath) && fs.existsSync(boldFontPath)) {
+      const fontBytes = fs.readFileSync(fontPath);
+      const boldFontBytes = fs.readFileSync(boldFontPath);
+      customFont = await pdfDoc.embedFont(fontBytes);
+      boldFont = await pdfDoc.embedFont(boldFontBytes);
+    } else {
+      console.warn('⚠️ Font files not found, using default fonts');
+      customFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    }
+  } catch (e) {
+    console.warn('⚠️ Font loading failed, using defaults:', e.message);
+    customFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  }
 
     // Layout Constants (Optimized for 4-in-a-row)
     const sigBoxWidth = 140; 
