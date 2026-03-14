@@ -8,6 +8,11 @@ import UserDashboard from './pages/UserDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import UploadPage from './pages/UploadPage'; // NEW IMPORT
 import VerificationPage from './pages/VerificationPage';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+
+// Add to your routes:
+
 
 // Protected Route component
 const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: string[] }> = ({ 
@@ -63,7 +68,8 @@ const AppContent: React.FC = () => {
             </ProtectedRoute>
           } 
         />
-        
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+<Route path="/reset-password" element={<ResetPassword />} />
         <Route 
           path="/admin" 
           element={

@@ -1,9 +1,9 @@
 import axios from 'axios';
 
-// Hardcode for testing - replace with your actual Render URL
-const API_URL = 'https://bangladesh-apostille-api.onrender.com';
+// ⚠️ FIXED: Removed trailing space that was causing 404 errors
+const API_URL = 'https://bangladesh-apostille-api.onrender.com'; // No space at end!
 
-console.log('Using API URL:', API_URL); // Debug
+console.log('Using API URL:', API_URL);
 
 const api = axios.create({
   baseURL: `${API_URL}/api`,
@@ -23,7 +23,7 @@ api.interceptors.request.use(
     if (config.data instanceof FormData) {
       delete config.headers['Content-Type'];
     }
-    console.log('Request to:', config.baseURL + config.url); // Debug
+    console.log('Request to:', config.baseURL + config.url);
     return config;
   },
   (error) => Promise.reject(error)
@@ -41,5 +41,5 @@ api.interceptors.response.use(
   }
 );
 
-export const API_BASE_URL = (api.defaults.baseURL || '').replace('/api', '');
+export const API_BASE_URL = API_URL; // Cleaner export
 export default api;
