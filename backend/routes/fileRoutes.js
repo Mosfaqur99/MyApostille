@@ -457,6 +457,7 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
 });
 
 // Delete upload
+// Delete upload (admin can delete any, user can only delete their own pending)
 router.delete('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -468,29 +469,64 @@ router.delete('/:id', verifyToken, async (req, res) => {
     
     const upload = uploadRes.rows[0];
     
-    if (upload.status !== 'pending') {
-      return res.status(400).json({ message: 'Only pending uploads can be deleted' });
-    }
-    
-    if (req.user.role !== 'admin' && upload.user_id !== req.user.id) {
-      return res.status(403).json({ message: 'Access denied' });
-    }
-    
-    // Delete files
-    if (upload.file_paths && Array.isArray(upload.file_paths)) {
-      for (const file of upload.file_paths) {
-        if (file.path) await deleteFileAsync(file.path);
+    // Admin can delete any upload (pending or verified)
+    // User can only delete their own pending uploads
+    if (req.user.role !== 'admin') {
+      // Non-admin checks
+      if (upload.status !== 'pending') {
+        return res.status(400).json({ 
+          message: 'Only pending uploads can be deleted by users.' 
+        });
       }
-    } else if (upload.file_path) {
-      await deleteFileAsync(upload.file_path);
+      
+      if (upload.user_id !== req.user.id) {
+        return res.status(403).json({ 
+          message: 'Access denied' 
+        });
+      }
+    }
+    
+    // Delete associated files
+    try {
+      // Delete original files
+      if (upload.file_paths && Array.isArray(upload.file_paths)) {
+        for (const file of upload.file_paths) {
+          if (file.path) await fs.unlink(file.path).catch(() => {});
+        }
+      } else if (upload.file_path) {
+        await fs.unlink(upload.file_path).catch(() => {});
+      }
+      
+      // Delete certificate file if exists
+      if (upload.certificate_pdf_path) {
+        const certPath = path.join(__dirname, '..', upload.certificate_pdf_path);
+        await fs.unlink(certPath).catch(() => {});
+      }
+      
+      // Delete reuploaded/verified files if exist
+      if (upload.reuploaded_file_paths && Array.isArray(upload.reuploaded_file_paths)) {
+        for (const filePath of upload.reuploaded_file_paths) {
+          const fullPath = path.join(__dirname, '..', filePath);
+          await fs.unlink(fullPath).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.warn(`⚠️ Could not delete some files: ${err.message}`);
     }
     
     await pool.query('DELETE FROM uploads WHERE id = $1', [id]);
     
-    res.json({ message: 'Application deleted successfully' });
+    res.json({ 
+      message: req.user.role === 'admin' && upload.status === 'verified' 
+        ? 'যাচাইকৃত আবেদন সফলভাবে মুছে ফেলা হয়েছে!' 
+        : 'আবেদন সফলভাবে মুছে ফেলা হয়েছে!' 
+    });
   } catch (err) {
     console.error('Delete upload error:', err);
-    res.status(500).json({ message: 'Server error during deletion', error: err.message });
+    res.status(500).json({ 
+      message: 'Server error during deletion', 
+      error: err.message 
+    });
   }
 });
 
