@@ -36,8 +36,8 @@ const VerificationPage = () => {
       // Handle reuploaded files
       if (response.data.reuploadedFiles?.length > 0) {
         const urls = response.data.reuploadedFiles.map((filepath: string) => 
-          `${baseURL}/${filepath}`
-        );
+  `${baseURL}/api/files/${filepath}` // Results in /api/files/verified/filename.pdf
+);
         setProcessedFiles(urls);
       } else {
         console.warn('⚠️ No reuploadedFiles in response:', response.data);

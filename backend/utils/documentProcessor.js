@@ -15,9 +15,13 @@ function formatSignatureDate(dateString) {
 
 // Helper function to get/create output directory
 function getOutputDir() {
-    const outputDir = path.join(__dirname, '..', 'uploads', 'verified');
+    // Use UPLOAD_DIR env var (set to /tmp/uploads on Render)
+    const baseDir = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
+    const outputDir = path.join(baseDir, 'verified');
+    
     if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
+        console.log('📁 Created verified directory:', outputDir);
     }
     return outputDir;
 }
