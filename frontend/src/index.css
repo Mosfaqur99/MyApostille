@@ -125,3 +125,17 @@ body {
 .drop-zone:hover {
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
 }
+
+
+/* Mobile PDF viewer optimization */
+@media (max-width: 768px) {
+  iframe {
+    -webkit-overflow-scrolling: touch;
+    overflow: auto;
+  }
+  
+  /* Hide browser's default PDF toolbar if possible */
+  iframe::-webkit-media-controls {
+    display: none !important;
+  }
+}
