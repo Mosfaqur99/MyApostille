@@ -219,19 +219,25 @@ router.get('/download-originals/:uploadId', verifyToken, authorizeRole('admin'),
     const zip = new AdmZip();
     let fileCount = 0;
 
-    filePaths.forEach(relPath => {
-      // FIX: Ensure relPath is a string before calling .replace
+    filePaths.forEach(entry => {
+      // FIX: Extract path if it's an object, otherwise use it as a string
+      let relPath = (typeof entry === 'object' && entry !== null) ? entry.path : entry;
+      
       if (!relPath || typeof relPath !== 'string') {
-        console.warn(`[Download] Skipping invalid path entry:`, relPath);
+        console.warn(`[Download] Skipping invalid path entry:`, entry);
         return;
       }
       
+      // Render/Linux Path Fix
       const cleanPath = relPath.replace(/\\/g, '/'); 
-      const fullPath = path.join(process.cwd(), cleanPath);
+      const fullPath = path.isAbsolute(cleanPath) ? cleanPath : path.join(process.cwd(), cleanPath);
       
       if (fs.existsSync(fullPath)) {
         zip.addLocalFile(fullPath);
         fileCount++;
+        console.log(`[Download] Added: ${fullPath}`);
+      } else {
+        console.error(`[Download] File NOT FOUND on disk: ${fullPath}`);
       }
     });
 
