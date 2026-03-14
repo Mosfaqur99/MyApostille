@@ -23,40 +23,48 @@ const VerificationPage = () => {
     // frontend/src/pages/VerificationPage.tsx
 
 // Inside VerificationPage.tsx
-// frontend/src/pages/VerificationPage.tsx
-
 const verifyCertificate = async () => {
   try {
     setLoading(true);
-    setError(null);
     const response = await api.get(`/files/verify/${certificateNumber}`);
-    
-    // DEBUG: See what the server actually sent
-    console.log("Full Server Response:", response.data);
-
     setVerificationData(response.data);
 
-    const baseURL = "https://bangladesh-apostille-api.onrender.com";
-
-    // 1. Handle the main Certificate PDF
-    if (response.data.certificatePath) {
-      setCertificateUrl(`${baseURL}/${response.data.certificatePath.replace(/^\/+/, '')}`);
+    // 1. Process Certificate URL
+    if (response.data.certificate_path) {
+      const certPath = response.data.certificate_path.replace(/\\/g, '/');
+      setCertificateUrl(`https://bangladesh-apostille-api.onrender.com/${certPath}`);
     }
 
-    // 2. Handle the Verified Documents (The tab content)
+    // 2. Process Verified Documents (The Fix)
     if (response.data.upload && response.data.upload.verified_paths) {
-      const paths = response.data.upload.verified_paths;
-      
-      const urls = paths.map((pathStr: string) => {
-        // Ensure path starts correctly
-        const cleanPath = pathStr.replace(/^\/+/, '');
-        return `${baseURL}/${cleanPath}`;
-      });
+      let vPaths = response.data.upload.verified_paths;
 
-      console.log("Generated Document URLs:", urls);
+      // Handle cases where DB returns a JSON string
+      if (typeof vPaths === 'string' && vPaths.startsWith('[')) {
+        try {
+          vPaths = JSON.parse(vPaths);
+        } catch (e) {
+          vPaths = [vPaths];
+        }
+      } else if (!Array.isArray(vPaths)) {
+        vPaths = [vPaths];
+      }
+
+      const baseURL = "https://bangladesh-apostille-api.onrender.com";
+
+      const urls = vPaths.map((entry: any) => {
+        // EXTRACTION FIX: Get .path if it's an object, otherwise use as string
+        const pathStr = (entry && typeof entry === 'object') ? entry.path : entry;
+        
+        if (!pathStr || typeof pathStr !== 'string') return null;
+
+        // Clean path: change \ to / and remove starting slash
+        const cleanPath = pathStr.replace(/\\/g, '/').replace(/^\/+/, '');
+        
+        return `${baseURL}/${cleanPath}`;
+      }).filter(Boolean) as string[];
+
       setProcessedFiles(urls);
-    } else {
-      console.warn("No processed documents found in response.data.upload.verified_paths");
     }
     
     setLoading(false);
