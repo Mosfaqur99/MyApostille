@@ -300,6 +300,16 @@ router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
     console.log('🔍 Verification request for:', certificateNumber);
+    const results = await processMultipleDocuments(files, signers, certNumber);
+
+    const successfulPaths = results
+    .filter(r => r.status === 'success')
+    .map(r => r.verifiedUrl);
+
+    await pool.query(
+    'UPDATE uploads SET verified_paths = $1, status = $2 WHERE id = $3',
+    [JSON.stringify(successfulPaths), 'verified', uploadId]
+);
 
     const uploads = await pool.query(
       `SELECT uploads.*, users.name as user_name, verifier.name as verified_by_name
