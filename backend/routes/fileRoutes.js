@@ -194,66 +194,65 @@ router.get('/pending', verifyToken, authorizeRole('admin'), async (req, res) => 
 router.get('/download-originals/:uploadId', verifyToken, authorizeRole('admin'), async (req, res) => {
   try {
     const { uploadId } = req.params;
-    console.log(`Processing download for uploadId: ${uploadId}`);
+    console.log(`[Download] Starting for ID: ${uploadId}`);
+
+    // 1. Check if adm-zip is installed
+    let AdmZip;
+    try {
+      AdmZip = require('adm-zip');
+    } catch (e) {
+      console.error("CRITICAL: adm-zip is not installed. Run 'npm install adm-zip'");
+      return res.status(500).json({ message: "Server missing ZIP utility" });
+    }
 
     const result = await pool.query('SELECT file_paths FROM uploads WHERE id = $1', [uploadId]);
+    if (result.rows.length === 0) return res.status(404).json({ message: "Record not found" });
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Record not found in database" });
+    let filePaths = result.rows[0].file_paths;
+    
+    // Convert DB string/JSON to Array
+    if (typeof filePaths === 'string') {
+      try { filePaths = JSON.parse(filePaths); } catch (e) { filePaths = [filePaths]; }
     }
+    if (!Array.isArray(filePaths)) filePaths = [filePaths];
 
-    const rawPaths = result.rows[0].file_paths;
-    let filePaths = [];
+    // 2. Filter valid files and resolve paths
+    const zip = new AdmZip();
+    let fileCount = 0;
 
-    // Robust parsing for different DB storage formats
-    if (typeof rawPaths === 'string' && rawPaths.startsWith('[')) {
-      filePaths = JSON.parse(rawPaths);
-    } else {
-      filePaths = Array.isArray(rawPaths) ? rawPaths : [rawPaths];
-    }
-
-    // Filter out empty entries
-    const validPaths = filePaths.filter(p => p);
-
-    if (validPaths.length === 0) {
-      return res.status(404).json({ message: "No file paths found in record" });
-    }
-
-    // CHECK IF FILES EXIST ON DISK
-    const existingFiles = validPaths.filter(p => {
-      const fullPath = path.join(__dirname, '..', p);
-      const exists = fs.existsSync(fullPath);
-      if (!exists) console.error(`MISSING FILE: ${fullPath}`);
-      return exists;
+    filePaths.forEach(relPath => {
+      if (!relPath) return;
+      
+      // Render Fix: Ensure path is absolute from the root of the project
+      const cleanPath = relPath.replace(/\\/g, '/'); // Convert Windows slashes to Linux
+      const fullPath = path.join(process.cwd(), cleanPath);
+      
+      if (fs.existsSync(fullPath)) {
+        zip.addLocalFile(fullPath);
+        fileCount++;
+        console.log(`[Download] Added to ZIP: ${fullPath}`);
+      } else {
+        console.warn(`[Download] File missing on disk: ${fullPath}`);
+      }
     });
 
-    if (existingFiles.length === 0) {
-      return res.status(404).json({ message: "Files no longer exist on the server" });
+    if (fileCount === 0) {
+      return res.status(404).json({ message: "Files not found on server storage." });
     }
 
-    if (existingFiles.length === 1) {
-      const fullPath = path.join(__dirname, '..', existingFiles[0]);
-      return res.download(fullPath);
-    } else {
-      const AdmZip = require('adm-zip');
-      const zip = new AdmZip();
-      
-      existingFiles.forEach(p => {
-        const fullPath = path.join(__dirname, '..', p);
-        zip.addLocalFile(fullPath);
-      });
+    // 3. Send the ZIP
+    const zipBuffer = zip.toBuffer();
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename=docs_${uploadId}.zip`,
+      'Content-Length': zipBuffer.length
+    });
+    
+    return res.send(zipBuffer);
 
-      const zipBuffer = zip.toBuffer();
-      res.set({
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename=originals_${uploadId}.zip`,
-        'Content-Length': zipBuffer.length
-      });
-      return res.send(zipBuffer);
-    }
   } catch (err) {
-    console.error('SERVER DOWNLOAD ERROR:', err);
-    res.status(500).json({ message: 'Internal Server Error', detail: err.message });
+    console.error('SERVER ERROR 500:', err);
+    res.status(500).json({ error: "Internal Server Error", details: err.message });
   }
 });
 
