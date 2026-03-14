@@ -26,27 +26,21 @@ const VerificationPage = () => {
       if (!isMounted) return;
       setVerificationData(response.data);
 
-      // ✅ Trim baseURL to avoid trailing spaces
+      // Base URL without trailing slash
       const baseURL = "https://bangladesh-apostille-api.onrender.com".trim();
 
-      const buildUrl = (path: string) => {
-        if (!path) return null;
-        if (path.startsWith("http")) return path;
-        const cleanBase = baseURL.replace(/\/+$/, "");
-        const cleanPath = path.replace(/^\/+/, "");
-        return `${cleanBase}/${cleanPath}`;
-      };
+      // Build certificate URL using filename only
+      if (response.data.certificateFilename) {
+        setCertificateUrl(`${baseURL}/certificates/${response.data.certificateFilename}`);
+      }
 
-      if (response.data.certificatePath) {
-  const filename = response.data.certificatePath.split('/').pop();
-  setCertificateUrl(`${baseURL}/certificates/${filename}`);
-}
-
-// Verified documents (uses /verified/ route)
-if (response.data.reuploadedFiles?.length > 0) {
-  const urls = response.data.reuploadedFiles.map((f: string) => `${baseURL}/verified/${f}`);
-  setProcessedFiles(urls);
-}else {
+      // Build verified documents URLs
+      if (response.data.reuploadedFiles?.length > 0) {
+        const urls = response.data.reuploadedFiles.map((filename: string) => 
+          `${baseURL}/verified/${filename}`
+        );
+        setProcessedFiles(urls);
+      } else {
         console.warn('⚠️ No reuploadedFiles in response:', response.data);
       }
 

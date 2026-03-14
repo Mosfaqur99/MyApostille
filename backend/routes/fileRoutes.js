@@ -301,6 +301,7 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 // GET /verify/:certificateNumber - PUBLIC verification endpoint
 // GET /verify/:certificateNumber - PUBLIC verification endpoint
 // GET /verify/:certificateNumber - FIXED JSON PARSING
+// GET /verify/:certificateNumber - FIXED VERSION
 router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
@@ -321,76 +322,46 @@ router.get('/verify/:certificateNumber', async (req, res) => {
     
     const upload = result.rows[0];
 
-    // Helper: Extract just filename from paths like "uploads/verified/file.pdf"
+    // Helper: Extract just filename from any path format
     const extractFilename = (p) => {
       if (!p) return null;
+      if (typeof p === 'object' && p.path) p = p.path; // Handle object format
       return p.split('/').pop()?.split('\\').pop() || null;
     };
 
-    // Build certificate path
-    const certificatePath = upload.certificate_pdf_path 
-      ? upload.certificate_pdf_path.replace(/\\/g, '/').replace(/^.*uploads[\\/]/i, "uploads/") 
+    // Build certificate filename (just the filename, not full path)
+    const certFilename = upload.certificate_pdf_path 
+      ? extractFilename(upload.certificate_pdf_path)
       : null;
     
-    // ✅ FIXED: Parse reuploaded_file_paths properly (handle JSON string or array)
+    // Parse reuploaded files - handle both JSON string and array formats
     let reuploadedFiles = [];
     if (upload.reuploaded_file_paths) {
       try {
-        // Parse if it's a JSON string (TEXT column), otherwise use as-is (JSONB)
         const paths = typeof upload.reuploaded_file_paths === 'string' 
           ? JSON.parse(upload.reuploaded_file_paths) 
           : upload.reuploaded_file_paths;
         
         if (Array.isArray(paths)) {
-          // Extract just filenames for /verified/:filename route
           reuploadedFiles = paths.map(extractFilename).filter(Boolean);
-        } else if (paths) {
-          const filename = extractFilename(paths);
-          if (filename) reuploadedFiles = [filename];
         }
       } catch (e) {
         console.warn('⚠️ Failed to parse reuploaded_file_paths:', e);
       }
     }
 
-    console.log('🔍 Response data:', {
-      certificatePath,
-      reuploadedFiles,
-      raw_db_value: upload.reuploaded_file_paths
-    });
+    console.log('✅ Sending response:', { certFilename, reuploadedFiles });
 
-    // Send response matching frontend expectations
-   // In GET /verify/:certificateNumber route, replace the response with:
-// In the res.json() response:
-res.json({
-  certificateNumber: upload.certificate_number,
-  certificatePath: upload.certificate_pdf_path
-    ? upload.certificate_pdf_path.replace(/^.*uploads[\\/]/, "uploads/")
-    : null,
-  certificateData: upload.certificate_data,
-  
-  // ✅ FIXED: Parse JSON string if needed, then extract filenames
-  reuploadedFiles: (() => {
-  if (!upload.reuploaded_file_paths) return [];
-  try {
-    const paths = typeof upload.reuploaded_file_paths === 'string'
-      ? JSON.parse(upload.reuploaded_file_paths)
-      : upload.reuploaded_file_paths;
-    if (Array.isArray(paths)) {
-      return paths.map(p => p.split('/').pop()?.split('\\').pop()).filter(Boolean);
-    }
-    return [];
-  } catch (e) {
-    console.warn('⚠️ Parse error:', e);
-    return [];
-  }
-})(),
-  
-  signaturesData: upload.additional_signatures_data || [],
-  verifiedAt: upload.verified_at,
-  userName: upload.user_name,
-  verifiedBy: upload.verified_by_name
-});
+    res.json({
+      certificateNumber: upload.certificate_number,
+      certificateFilename: certFilename, // Just filename, not path
+      certificateData: upload.certificate_data,
+      reuploadedFiles: reuploadedFiles, // Array of filenames only
+      signaturesData: upload.additional_signatures_data || [],
+      verifiedAt: upload.verified_at,
+      userName: upload.user_name,
+      verifiedBy: upload.verified_by_name
+    });
 
   } catch (err) {
     console.error('❌ Error fetching verification:', err);

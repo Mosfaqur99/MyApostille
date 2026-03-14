@@ -70,17 +70,24 @@ dirs.forEach(dir => {
 process.env.UPLOAD_DIR = uploadBaseDir;
 
 // Static files
-app.use(
-  "/uploads",
-  express.static(uploadBaseDir, {
-    setHeaders: (res) => {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Headers", "*");
-      res.setHeader("X-Frame-Options", "ALLOWALL");
-      res.setHeader("Content-Disposition", "inline");
-    },
-  })
-);
+app.use('/certificates', express.static(path.join(uploadDir, 'certificates'), {
+  setHeaders: (res) => {
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', 'inline');
+  }
+}));
+
+app.use('/verified', express.static(path.join(uploadDir, 'verified'), {
+  setHeaders: (res, filePath) => {
+    // Set appropriate content types
+    if (filePath.endsWith('.pdf')) {
+      res.set('Content-Type', 'application/pdf');
+    } else if (filePath.match(/\.(jpg|jpeg|png|gif)$/i)) {
+      res.set('Content-Type', `image/${path.extname(filePath).slice(1)}`);
+    }
+    res.set('Content-Disposition', 'inline');
+  }
+}));
 
 console.log('Upload directory:', uploadBaseDir);
 
