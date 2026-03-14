@@ -362,7 +362,7 @@ async function processImage(pdfDoc, imagePath, signers, certNumber = null) {
             y: currentY,
             size: 7,
             font: customFont,
-            color: rgb(76, 32, 114)
+            color: rgb(0, 0, 0)
         });
         currentY -= 11;
         
@@ -372,7 +372,7 @@ async function processImage(pdfDoc, imagePath, signers, certNumber = null) {
             y: currentY,
             size: 7,
             font: boldFont,
-            color: rgb(76, 32, 114)
+            color: rgb(0, 0, 0)
         });
         currentY -= 9;
         
@@ -382,7 +382,7 @@ async function processImage(pdfDoc, imagePath, signers, certNumber = null) {
             y: currentY,
             size: 6.5,
             font: customFont,
-            color: rgb(76, 32, 114)
+            color: rgb(0, 0, 0)
         });
         currentY -= 8;
         
@@ -392,7 +392,7 @@ async function processImage(pdfDoc, imagePath, signers, certNumber = null) {
             y: currentY,
             size: 6,
             font: customFont,
-            color: rgb(76, 32, 114)
+            color: rgb(0, 0, 0)
         });
     }
     
@@ -401,5 +401,5 @@ async function processImage(pdfDoc, imagePath, signers, certNumber = null) {
 
 module.exports = { 
     processDocumentWithSignatures,
-    processMultipleDocuments
+    processMultipleDocuments  // <-- ADD THIS EXPORT
 };

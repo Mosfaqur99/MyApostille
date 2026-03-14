@@ -8,7 +8,7 @@ const pool = require('../config/db');
 
 // Import generators
 const { generateEApostilleCertificate } = require('../utils/certificateGenerator');
-const { processDocumentWithSignatures } = require('../utils/documentProcessor');
+const { processMultipleDocuments } = require('../utils/documentProcessor');
 
 console.log('Loading fileRoutes...');
 console.log('processDocumentWithSignatures:', typeof processDocumentWithSignatures);
@@ -334,13 +334,13 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     try {
       certResult = await generateEApostilleCertificate(certificateData);
       console.log('🔍 Step 4 PASSED: Certificate generated', certResult.filePath);
-      const certDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'certificates');
-      await ensureDirAsync(certDir);
-      const certFileName = `certificate-${certNumber}.pdf`;
-      certFilePath = path.join(certDir, certFileName);
-      relativeCertPath = `/uploads/certificates/${certFileName}`;
-       await fs.promises.writeFile(certFilePath, certResult.pdfBytes);
-      console.log('🔍 Certificate saved to:', certFilePath);
+      // const certDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'certificates');
+      // await ensureDirAsync(certDir);
+      // const certFileName = `certificate-${certNumber}.pdf`;
+      // certFilePath = path.join(certDir, certFileName);
+      // relativeCertPath = `/uploads/certificates/${certFileName}`;
+      //  await fs.promises.writeFile(certFilePath, certResult.pdfBytes);
+      // console.log('🔍 Certificate saved to:', certFilePath);
       console.log('🔍 Relative path:', relativeCertPath);
     } catch (certErr) {
       console.error('🔍 CERTIFICATE GENERATION FAILED:', certErr);
@@ -349,7 +349,7 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     }
 
     // Step 5: Process signatures
-    console.log('🔍 Step 5: Processing signatures...');
+     console.log('🔍 Step 5: Processing signatures...');
     let reuploadedPaths = [];
     let signaturesData = [];
 
@@ -377,25 +377,44 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
         
         signaturesData = signersWithDates;
         
-        const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
-        console.log('🔍 Ensuring verified directory:', verifiedDir);
-        await ensureDirAsync(verifiedDir);
-        
-        for (const file of req.files) {
-          console.log('🔍 Processing file:', file.path);
-          try {
-            const processedPath = await processDocumentWithSignatures(
-              file.path,
-              signersWithDates,
-              certNumber
-            );
-            reuploadedPaths.push(processedPath);
-            console.log('🔍 File processed:', processedPath);
-          } catch (procErr) {
-            console.error('🔍 FILE PROCESSING FAILED:', procErr);
-            throw procErr;
-          }
+        // Use processMultipleDocuments instead of looping
+        console.log('🔍 Calling processMultipleDocuments...');
+        try {
+          const processedResults = await processMultipleDocuments(
+            req.files,
+            signersWithDates,
+            certNumber
+          );
+          
+          // Extract successful URLs
+          reuploadedPaths = processedResults
+            .filter(r => r.status === 'success')
+            .map(r => r.verifiedUrl);
+            
+          console.log('🔍 Files processed:', reuploadedPaths.length);
+        } catch (procErr) {
+          console.error('🔍 FILE PROCESSING FAILED:', procErr);
+          throw procErr;
         }
+      }
+    } else {
+      // No additional signers - just process files without signatures
+      console.log('🔍 No additional signers, processing files without signatures...');
+      try {
+        const processedResults = await processMultipleDocuments(
+          req.files,
+          [], // Empty signers array
+          certNumber
+        );
+        
+        reuploadedPaths = processedResults
+          .filter(r => r.status === 'success')
+          .map(r => r.verifiedUrl);
+          
+        console.log('🔍 Files processed:', reuploadedPaths.length);
+      } catch (procErr) {
+        console.error('🔍 FILE PROCESSING FAILED:', procErr);
+        throw procErr;
       }
     }
     console.log('🔍 Step 5 PASSED: Signatures processed');
