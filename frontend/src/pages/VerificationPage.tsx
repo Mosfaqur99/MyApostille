@@ -38,6 +38,8 @@ const VerificationPage = () => {
           return `${baseURL}/${path.replace(/^\/+/, "")}`;
         };
 
+        
+
         if (response.data.certificatePath) {
           setCertificateUrl(buildUrl(response.data.certificatePath));
         }

@@ -190,45 +190,70 @@ router.get('/pending', verifyToken, authorizeRole('admin'), async (req, res) => 
 });
 
 
+// backend/routes/fileRoutes.js
 router.get('/download-originals/:uploadId', verifyToken, authorizeRole('admin'), async (req, res) => {
   try {
     const { uploadId } = req.params;
+    console.log(`Processing download for uploadId: ${uploadId}`);
+
     const result = await pool.query('SELECT file_paths FROM uploads WHERE id = $1', [uploadId]);
 
-    if (result.rows.length === 0) return res.status(404).json({ message: "Not found" });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Record not found in database" });
+    }
 
     const rawPaths = result.rows[0].file_paths;
     let filePaths = [];
 
-    // Parse logic to handle single string or JSON array
+    // Robust parsing for different DB storage formats
     if (typeof rawPaths === 'string' && rawPaths.startsWith('[')) {
       filePaths = JSON.parse(rawPaths);
     } else {
       filePaths = Array.isArray(rawPaths) ? rawPaths : [rawPaths];
     }
 
-    if (filePaths.length === 1) {
-      // Download single file
-      const filePath = path.join(__dirname, '..', filePaths[0]);
-      return res.download(filePath);
+    // Filter out empty entries
+    const validPaths = filePaths.filter(p => p);
+
+    if (validPaths.length === 0) {
+      return res.status(404).json({ message: "No file paths found in record" });
+    }
+
+    // CHECK IF FILES EXIST ON DISK
+    const existingFiles = validPaths.filter(p => {
+      const fullPath = path.join(__dirname, '..', p);
+      const exists = fs.existsSync(fullPath);
+      if (!exists) console.error(`MISSING FILE: ${fullPath}`);
+      return exists;
+    });
+
+    if (existingFiles.length === 0) {
+      return res.status(404).json({ message: "Files no longer exist on the server" });
+    }
+
+    if (existingFiles.length === 1) {
+      const fullPath = path.join(__dirname, '..', existingFiles[0]);
+      return res.download(fullPath);
     } else {
-      // Download multiple files as ZIP
       const AdmZip = require('adm-zip');
       const zip = new AdmZip();
-      filePaths.forEach(p => {
-        const fullPath = path.join(__dirname, '..', p);
-        if (fs.existsSync(fullPath)) zip.addLocalFile(fullPath);
-      });
       
+      existingFiles.forEach(p => {
+        const fullPath = path.join(__dirname, '..', p);
+        zip.addLocalFile(fullPath);
+      });
+
       const zipBuffer = zip.toBuffer();
       res.set({
         'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename=originals_${uploadId}.zip`
+        'Content-Disposition': `attachment; filename=originals_${uploadId}.zip`,
+        'Content-Length': zipBuffer.length
       });
       return res.send(zipBuffer);
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('SERVER DOWNLOAD ERROR:', err);
+    res.status(500).json({ message: 'Internal Server Error', detail: err.message });
   }
 });
 
