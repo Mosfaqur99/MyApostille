@@ -361,13 +361,36 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 
     // Send response matching frontend expectations
     res.json({
-      certificateNumber: upload.certificate_number,
-      certificatePath: certificatePath,
-      reuploadedFiles: reuploadedFiles,  // ← Array of filenames like ["verified_123_file.pdf"]
-      verifiedAt: upload.verified_at,
-      userName: upload.user_name,
-      verifiedBy: upload.verified_by_name
-    });
+  certificateNumber: upload.certificate_number,
+  certificatePath: upload.certificate_pdf_path
+    ? upload.certificate_pdf_path.replace(/^.*uploads[\\/]/, "uploads/")
+    : null,
+  certificateData: upload.certificate_data,
+  
+  // ✅ FIXED: Handle both JSON string and array formats
+  reuploadedFiles: (() => {
+    if (!upload.reuploaded_file_paths) return [];
+    try {
+      // Parse if string, otherwise use as-is
+      const paths = typeof upload.reuploaded_file_paths === 'string'
+        ? JSON.parse(upload.reuploaded_file_paths)
+        : upload.reuploaded_file_paths;
+      
+      if (Array.isArray(paths)) {
+        return paths.map(p => p.replace(/^.*uploads[\\/]/, "uploads/"));
+      }
+      return [];
+    } catch (e) {
+      console.warn('⚠️ Failed to parse reuploaded_file_paths:', e);
+      return [];
+    }
+  })(),
+  
+  signaturesData: upload.additional_signatures_data || [],
+  verifiedAt: upload.verified_at,
+  userName: upload.user_name,
+  verifiedBy: upload.verified_by_name
+});
 
   } catch (err) {
     console.error('❌ Error fetching verification:', err);
