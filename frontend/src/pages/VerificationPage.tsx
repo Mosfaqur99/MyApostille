@@ -37,20 +37,16 @@ const VerificationPage = () => {
         return `${cleanBase}/${cleanPath}`;
       };
 
-      // 1. Certificate PDF (uses /uploads/certificates/ route)
       if (response.data.certificatePath) {
-        setCertificateUrl(buildUrl(response.data.certificatePath));
-      }
+  const filename = response.data.certificatePath.split('/').pop();
+  setCertificateUrl(`${baseURL}/certificates/${filename}`);
+}
 
-      // 2. ✅ FIXED: Verified Documents - backend now sends just filenames
-      //    Frontend builds: https://.../verified/filename.pdf
-      if (response.data.reuploadedFiles?.length > 0) {
-        const urls = response.data.reuploadedFiles
-          .map((filename: string) => buildUrl(`verified/${filename}`)) // ← Prepend "verified/"
-          .filter(Boolean);
-        console.log('🔗 Built document URLs:', urls); // Debug
-        setProcessedFiles(urls);
-      } else {
+// Verified documents (uses /verified/ route)
+if (response.data.reuploadedFiles?.length > 0) {
+  const urls = response.data.reuploadedFiles.map((f: string) => `${baseURL}/verified/${f}`);
+  setProcessedFiles(urls);
+}else {
         console.warn('⚠️ No reuploadedFiles in response:', response.data);
       }
 

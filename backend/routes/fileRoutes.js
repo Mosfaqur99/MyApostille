@@ -371,26 +371,20 @@ res.json({
   
   // ✅ FIXED: Parse JSON string if needed, then extract filenames
   reuploadedFiles: (() => {
-    if (!upload.reuploaded_file_paths) return [];
-    try {
-      // Parse if string, otherwise use as-is
-      const paths = typeof upload.reuploaded_file_paths === 'string'
-        ? JSON.parse(upload.reuploaded_file_paths)
-        : upload.reuploaded_file_paths;
-      
-      if (Array.isArray(paths)) {
-        // Extract just filename: "uploads/verified/file.pdf" → "file.pdf"
-        return paths.map(p => {
-          const filename = p.split('/').pop()?.split('\\').pop();
-          return filename || null;
-        }).filter(Boolean);
-      }
-      return [];
-    } catch (e) {
-      console.warn('⚠️ Failed to parse reuploaded_file_paths:', e);
-      return [];
+  if (!upload.reuploaded_file_paths) return [];
+  try {
+    const paths = typeof upload.reuploaded_file_paths === 'string'
+      ? JSON.parse(upload.reuploaded_file_paths)
+      : upload.reuploaded_file_paths;
+    if (Array.isArray(paths)) {
+      return paths.map(p => p.split('/').pop()?.split('\\').pop()).filter(Boolean);
     }
-  })(),
+    return [];
+  } catch (e) {
+    console.warn('⚠️ Parse error:', e);
+    return [];
+  }
+})(),
   
   signaturesData: upload.additional_signatures_data || [],
   verifiedAt: upload.verified_at,
@@ -489,7 +483,7 @@ console.log('🔍 Step 5: Processing signatures...');
 let reuploadedPaths = [];
 let signaturesData = [];
 
-// 1. Parse additional signers (OPTIONAL - files process regardless)
+// Parse signers first (optional)
 let signersWithDates = [];
 if (additionalSigners) {
   try {
@@ -511,27 +505,26 @@ if (additionalSigners) {
   }
 }
 
-// 2. ✅ Process ALL uploaded files (WITH OR WITHOUT SIGNERS) - MOVED OUTSIDE!
+// ✅ Process ALL files - MOVED OUTSIDE the signers condition
 if (req.files && req.files.length > 0) {
   const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
   await ensureDirAsync(verifiedDir);
   
   for (const file of req.files) {
-    console.log('🔍 Processing file:', file.originalname);
     try {
       const processedPath = await processDocumentWithSignatures(
         file.path,
-        signersWithDates,  // Empty array is fine
+        signersWithDates,  // Empty array = no signatures drawn, but file still processed
         certNumber
       );
       reuploadedPaths.push(processedPath);
       console.log('✅ File processed:', processedPath);
     } catch (procErr) {
-      console.error('⚠️ File processing failed (continuing):', file.originalname, procErr.message);
+      console.error('⚠️ File processing failed:', file.originalname, procErr.message);
     }
   }
 }
-console.log('🔍 reuploadedPaths final:', reuploadedPaths);
+console.log('🔍 reuploadedPaths:', reuploadedPaths);
 
     // ========== Step 7: Cleanup original files ==========
     if (upload.file_paths) {
@@ -741,6 +734,32 @@ router.get('/verified/:filename', async (req, res) => {
   }
 });
 
+
+// Serve certificate PDFs (public access for verification page)
+router.get('/certificates/:filename', async (req, res) => {
+  try {
+    const { filename } = req.params;
+    
+    // Security check
+    if (filename.includes('..') || filename.includes('/')) {
+      return res.status(400).json({ message: 'Invalid filename' });
+    }
+    
+    const uploadDir = process.env.UPLOAD_DIR || '/tmp/uploads';
+    const filePath = path.join(uploadDir, 'certificates', filename);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: 'Certificate not found' });
+    }
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline');
+    res.sendFile(path.resolve(filePath));
+  } catch (error) {
+    console.error('❌ Certificate serve error:', error);
+    res.status(500).json({ message: 'Error serving certificate' });
+  }
+});
 // PATCH endpoint for partial file updates (add/remove files)
 router.patch('/edit/:id', verifyToken, upload.array('files', 10), async (req, res) => {
   try {
