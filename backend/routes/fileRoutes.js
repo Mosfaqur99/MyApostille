@@ -361,6 +361,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 
     // Send response matching frontend expectations
    // In GET /verify/:certificateNumber route, replace the response with:
+// In the res.json() response:
 res.json({
   certificateNumber: upload.certificate_number,
   certificatePath: upload.certificate_pdf_path
@@ -368,10 +369,11 @@ res.json({
     : null,
   certificateData: upload.certificate_data,
   
-  // ✅ FIXED: Handle both JSON string and array, extract just filenames
+  // ✅ FIXED: Parse JSON string if needed, then extract filenames
   reuploadedFiles: (() => {
     if (!upload.reuploaded_file_paths) return [];
     try {
+      // Parse if string, otherwise use as-is
       const paths = typeof upload.reuploaded_file_paths === 'string'
         ? JSON.parse(upload.reuploaded_file_paths)
         : upload.reuploaded_file_paths;
@@ -460,7 +462,7 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
 
     // ========== Step 4: Parse additional signers (OPTIONAL) ==========
     
-    let signaturesData = [];
+    
     
     if (additionalSigners) {
       try {
@@ -485,7 +487,7 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
    // Step 5: Process signatures on uploaded documents
 console.log('🔍 Step 5: Processing signatures...');
 let reuploadedPaths = [];
-
+let signaturesData = [];
 
 // 1. Parse additional signers (OPTIONAL - files process regardless)
 let signersWithDates = [];
@@ -517,7 +519,6 @@ if (req.files && req.files.length > 0) {
   for (const file of req.files) {
     console.log('🔍 Processing file:', file.originalname);
     try {
-      // Process with signatures (empty signersWithDates = no signatures drawn, but file still processed)
       const processedPath = await processDocumentWithSignatures(
         file.path,
         signersWithDates,  // Empty array is fine
