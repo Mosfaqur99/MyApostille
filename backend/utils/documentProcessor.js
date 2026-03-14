@@ -43,7 +43,7 @@ const LAYOUT_CONFIG = {
     sigHeight: 36,
     sigWidth: 85,
     yOffset: 90,
-    verticalSpacing: 130,
+    verticalSpacing: 95,
     marginX: 40,
     gapBetweenBoxes: 90
   }
@@ -131,7 +131,7 @@ function calculateLayout(pageWidth, pageHeight, numSigners) {
     sigWidth: config.sigWidth,
     sigHeight: config.sigHeight,
     startX,
-    startY: config.yOffset,
+    startY: 2,
     verticalSpacing: config.verticalSpacing,
     gapBetweenBoxes: config.gapBetweenBoxes
   };
@@ -242,7 +242,8 @@ async function processPDF(pdfDoc, signers) {
       const col = i % layout.sigsPerRow;
       
       const x = layout.startX + (col * (layout.boxWidth + layout.gapBetweenBoxes));
-      const baseY = layout.startY + (row * layout.verticalSpacing);
+      const baseY =
+  80 + (row * layout.verticalSpacing);
 
      await drawSignatureBox(
   page,
@@ -277,7 +278,7 @@ async function drawSignatureBox(
   attestedImg
 ) {
 
-  let y = baseY + 60;
+  let y = baseY + 40;
 
   // ATTTESTED TEXT
   if (attestedImg) {
