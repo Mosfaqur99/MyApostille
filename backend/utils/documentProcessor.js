@@ -90,7 +90,7 @@ async function processDocumentWithSignatures(filePath, signers, certNumber = nul
     const pdfBytes = await pdfDoc.save();
     fs.writeFileSync(outputPath, pdfBytes);
     
-    return `uploads/verified/${outputFileName}`;
+    return `verified/${outputFileName}`;
 }
 
 /**
