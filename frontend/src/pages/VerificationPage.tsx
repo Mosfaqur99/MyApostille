@@ -15,7 +15,7 @@ const VerificationPage = () => {
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"certificate" | "documents">("certificate");
 
-  useEffect(() => {
+ useEffect(() => {
   let isMounted = true;
   
   const verifyCertificate = async () => {
@@ -28,17 +28,15 @@ const VerificationPage = () => {
 
       const baseURL = "https://bangladesh-apostille-api.onrender.com".trim();
 
-      // ✅ FIXED: Use the path directly, don't add extra /certificates/
+      // Handle certificate URL
       if (response.data.certificateFilename) {
-        // certificateFilename should be "certificates/filename.pdf"
         setCertificateUrl(`${baseURL}/${response.data.certificateFilename}`);
       }
 
-      // ✅ FIXED: Same for reuploaded files
+      // Handle reuploaded files
       if (response.data.reuploadedFiles?.length > 0) {
-        // reuploadedFiles should be ["verified/file1.pdf", "verified/file2.pdf"]
         const urls = response.data.reuploadedFiles.map((filepath: string) => 
-          `${baseURL}/${filepath}` // filepath already includes "verified/"
+          `${baseURL}/${filepath}`
         );
         setProcessedFiles(urls);
       } else {
