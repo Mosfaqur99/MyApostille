@@ -294,6 +294,8 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 
 // Get verification details (public) - FIXED
 // Get verification details (public) - Updated for path consistency
+// backend/routes/fileRoutes.js
+
 router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
@@ -314,33 +316,29 @@ router.get('/verify/:certificateNumber', async (req, res) => {
     
     const upload = uploads.rows[0];
 
-    // Helper to clean paths from either Strings or Objects [{path: '...'}]
-    const cleanPathArray = (paths) => {
-      if (!paths) return [];
-      let parsed = typeof paths === 'string' ? JSON.parse(paths) : paths;
-      if (!Array.isArray(parsed)) parsed = [parsed];
+    // This helper extracts the 'path' whether the DB has strings or objects
+    const cleanPaths = (data) => {
+      if (!data) return [];
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      const array = Array.isArray(parsed) ? parsed : [parsed];
       
-      return parsed.map(entry => {
+      return array.map(entry => {
         const p = (entry && typeof entry === 'object') ? entry.path : entry;
-        if (!p) return null;
-        // Normalize slashes for the browser/Linux
-        return p.replace(/\\/g, '/').replace(/^.*uploads\//, "uploads/");
+        return p ? p.replace(/\\/g, '/').replace(/^.*uploads\//, "uploads/") : null;
       }).filter(Boolean);
     };
     
+    // IMPORTANT: Matching the nesting the frontend expects
     res.json({
       certificateNumber: upload.certificate_number,
-      // The main certificate PDF
       certificatePath: upload.certificate_pdf_path 
         ? upload.certificate_pdf_path.replace(/\\/g, '/').replace(/^.*uploads\//, "uploads/") 
         : null,
-      
-      // The stamped/verified documents the user wants to see
+      // Wrap verified_paths inside an 'upload' object
       upload: {
-        verified_paths: cleanPathArray(upload.verified_paths || upload.reuploaded_file_paths),
+        verified_paths: cleanPaths(upload.verified_paths || upload.reuploaded_file_paths),
         file_type: upload.file_type
       },
-      
       verifiedAt: upload.verified_at,
       userName: upload.user_name,
       verifiedBy: upload.verified_by_name
