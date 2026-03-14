@@ -5,47 +5,50 @@ const fs = require('fs');
 const path = require('path');
 
 // ==========================================
-// TEXT SIZE CONFIGURATION - ADJUST THESE VALUES
+// TEXT SIZE CONFIGURATION
 // ==========================================
-// To change text sizes, modify these constants:
-// - DATE_SIZE: Date text size (default: 6)
-// - NAME_SIZE: Signer name size (default: 7) 
-// - DESIGNATION_SIZE: Designation text size (default: 6)
-// - ATTESTED_IMG_HEIGHT: Height of attested image (default: 15)
-// Increase numbers to make text bigger, decrease to make smaller
-
 const TEXT_SIZES = {
   date: 7,        // Date text size
-  name: 6,        // Signer name size (bold)
-  designation: 6, // Designation text size
-  attestedImgHeight: 15 // Height of attested image in points
+  name: 8,        // Signer name size (slightly larger for readability)
+  designation: 7, // Designation text size
+  attestedImgHeight: 18, // Height of attested image
+  lineHeight: 10  // Vertical spacing between text lines
 };
 
-// Layout configuration
+// Layout configuration - TIGHTER SPACING
 const LAYOUT_CONFIG = {
   mobile: {
     maxSignaturesPerRow: 2,
-    sigBoxWidth: 120,
-    sigHeight: 30,
-    yOffset: 80,
-    verticalSpacing: 90,
-    marginX: 20
+    sigBoxWidth: 140,      // Wider boxes for full names
+    sigHeight: 35,         // Signature image height
+    sigWidth: 80,          // Signature image width
+    yOffset: 60,
+    verticalSpacing: 110,  // Reduced from 140
+    marginX: 15,
+    gapUnderAttested: 5,   // Minimal gap under "Attested" image
+    gapUnderSignature: 8   // Minimal gap under signature
   },
   tablet: {
-    maxSignaturesPerRow: 3,
-    sigBoxWidth: 130,
-    sigHeight: 32,
-    yOffset: 70,
-    verticalSpacing: 85,
-    marginX: 30
+    maxSignaturesPerRow: 2,
+    sigBoxWidth: 160,
+    sigHeight: 40,
+    sigWidth: 90,
+    yOffset: 50,
+    verticalSpacing: 120,
+    marginX: 20,
+    gapUnderAttested: 5,
+    gapUnderSignature: 8
   },
   desktop: {
-    maxSignaturesPerRow: 4,
-    sigBoxWidth: 140,
-    sigHeight: 35,
-    yOffset: 60,
-    verticalSpacing: 80,
-    marginX: 40
+    maxSignaturesPerRow: 2, // Force 2 per row even on desktop for this layout
+    sigBoxWidth: 180,
+    sigHeight: 45,
+    sigWidth: 100,
+    yOffset: 40,
+    verticalSpacing: 130,
+    marginX: 30,
+    gapUnderAttested: 5,
+    gapUnderSignature: 10
   }
 };
 
@@ -77,6 +80,28 @@ function getDeviceType(width, height) {
   return 'desktop';
 }
 
+// Wrap text into multiple lines
+function wrapText(text, maxWidth, font, size) {
+  const words = text.split(' ');
+  const lines = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    const testLine = currentLine ? currentLine + ' ' + word : word;
+    const width = font.widthOfTextAtSize(testLine, size);
+    
+    if (width > maxWidth && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  
+  return lines;
+}
+
 function calculateLayout(pageWidth, pageHeight, numSigners) {
   const deviceType = getDeviceType(pageWidth, pageHeight);
   const config = LAYOUT_CONFIG[deviceType];
@@ -87,12 +112,12 @@ function calculateLayout(pageWidth, pageHeight, numSigners) {
   const availableWidth = pageWidth - (config.marginX * 2);
   const actualBoxWidth = Math.min(
     config.sigBoxWidth,
-    Math.floor(availableWidth / sigsPerRow) - 10
+    Math.floor(availableWidth / sigsPerRow) - 20
   );
   
-  const totalRowWidth = (sigsPerRow * actualBoxWidth) + ((sigsPerRow - 1) * 10);
+  const totalRowWidth = (sigsPerRow * actualBoxWidth) + ((sigsPerRow - 1) * 20);
   const startX = (pageWidth - totalRowWidth) / 2;
-  const startY = Math.max(config.yOffset, config.yOffset);
+  const startY = config.yOffset;
   
   return {
     deviceType,
@@ -100,10 +125,13 @@ function calculateLayout(pageWidth, pageHeight, numSigners) {
     numRows,
     boxWidth: actualBoxWidth,
     boxHeight: config.sigHeight,
+    sigWidth: config.sigWidth,
     startX,
     startY,
     verticalSpacing: config.verticalSpacing,
-    marginX: config.marginX
+    marginX: config.marginX,
+    gapUnderAttested: config.gapUnderAttested,
+    gapUnderSignature: config.gapUnderSignature
   };
 }
 
@@ -169,7 +197,7 @@ async function processPDF(pdfDoc, signers) {
   const assetsPath = getAssetsPath();
   const purpleColor = rgb(76/255, 32/255, 114/255);
   
-  // Load attested image once
+  // Load attested image
   let attestedImg = null;
   try {
     const attestedPath = path.join(assetsPath, 'signatures', 'documents', 'attested_text.png');
@@ -177,8 +205,6 @@ async function processPDF(pdfDoc, signers) {
       const attestedBytes = fs.readFileSync(attestedPath);
       attestedImg = await pdfDoc.embedPng(attestedBytes);
       console.log('✅ Loaded attested_text.png');
-    } else {
-      console.warn('⚠️ attested_text.png not found at:', attestedPath);
     }
   } catch (e) {
     console.warn('⚠️ Failed to load attested image:', e.message);
@@ -194,37 +220,38 @@ async function processPDF(pdfDoc, signers) {
       customFont = await pdfDoc.embedFont(fontBytes);
       boldFont = await pdfDoc.embedFont(boldFontBytes);
     } else {
-      console.warn('⚠️ Font files not found, using default fonts');
       customFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
       boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     }
   } catch (e) {
-    console.warn('⚠️ Font loading failed, using defaults:', e.message);
     customFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
     boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   }
 
   for (const page of pages) {
     const { width, height } = page.getSize();
-
     const layout = calculateLayout(width, height, signers.length);
-    console.log(`📐 Page ${width}x${height} detected as ${layout.deviceType}, using ${layout.sigsPerRow} per row`);
+    
+    console.log(`📐 Page ${width}x${height}, layout: ${layout.deviceType}, box: ${layout.boxWidth}`);
 
     for (let i = 0; i < signers.length; i++) {
       const signer = signers[i];
       const row = Math.floor(i / layout.sigsPerRow);
       const col = i % layout.sigsPerRow;
       
-      const x = layout.startX + (col * (layout.boxWidth + 10));
-      const y = layout.startY + (row * layout.verticalSpacing);
+      const x = layout.startX + (col * (layout.boxWidth + 20));
+      const baseY = layout.startY + (row * layout.verticalSpacing);
 
       await drawSignatureBox(
         page, 
         signer, 
         x, 
-        y, 
-        layout.boxWidth, 
+        baseY, 
+        layout.boxWidth,
+        layout.sigWidth,
         layout.boxHeight,
+        layout.gapUnderAttested,
+        layout.gapUnderSignature,
         customFont,
         boldFont,
         purpleColor,
@@ -235,19 +262,26 @@ async function processPDF(pdfDoc, signers) {
   }
 }
 
-async function drawSignatureBox(page, signer, x, y, boxWidth, sigHeight, customFont, boldFont, color, assetsPath, attestedImg) {
-  // 1. Attested Image (instead of text)
+async function drawSignatureBox(page, signer, x, baseY, boxWidth, sigWidth, sigHeight, 
+                                gapUnderAttested, gapUnderSignature, customFont, boldFont, 
+                                color, assetsPath, attestedImg) {
+  
+  let currentY = baseY;
+  
+  // 1. Attested Image (tight to top)
   if (attestedImg) {
     const imgWidth = (TEXT_SIZES.attestedImgHeight * attestedImg.width) / attestedImg.height;
     page.drawImage(attestedImg, {
       x: x + (boxWidth - imgWidth) / 2,
-      y: y + sigHeight + 20, // Position above signature
+      y: currentY + sigHeight + gapUnderAttested + sigHeight + 20, // Position at top
       width: imgWidth,
       height: TEXT_SIZES.attestedImgHeight
     });
+    // Update currentY to be just under the attested image
+    currentY = baseY + sigHeight + 15;
   }
 
-  // 2. Signature Image
+  // 2. Signature Image (tight under attested)
   try {
     const sigPath = path.join(assetsPath, 'signatures', 'documents', signer.signature_image);
     if (fs.existsSync(sigPath)) {
@@ -256,64 +290,94 @@ async function drawSignatureBox(page, signer, x, y, boxWidth, sigHeight, customF
         ? await page.doc.embedPng(sigBytes)
         : await page.doc.embedJpg(sigBytes);
       
-      const scale = Math.min(
-        (boxWidth - 20) / sigImg.width,
-        sigHeight / sigImg.height
-      );
-      
-      const scaledWidth = sigImg.width * scale;
+      // Fixed width, auto height to preserve aspect ratio
+      const scale = sigWidth / sigImg.width;
+      const scaledWidth = sigWidth;
       const scaledHeight = sigImg.height * scale;
       
       page.drawImage(sigImg, {
         x: x + (boxWidth - scaledWidth) / 2,
-        y: y + (sigHeight - scaledHeight) / 2,
+        y: currentY + (sigHeight - scaledHeight) / 2,
         width: scaledWidth,
         height: scaledHeight
       });
     }
   } catch (e) {
-    console.warn(`⚠️ Signature image missing for ${signer.name}:`, e.message);
+    console.warn(`⚠️ Signature missing for ${signer.name}`);
   }
 
-  // 3. Date (using TEXT_SIZES.date)
+  // Move Y down past signature
+  currentY = baseY - gapUnderSignature;
+
+  // 3. Date (centered, tight)
   const dateText = formatSignatureDate(signer.signatureDate || new Date());
   const dateWidth = customFont.widthOfTextAtSize(dateText, TEXT_SIZES.date);
   page.drawText(dateText, {
     x: x + (boxWidth - dateWidth) / 2,
-    y: y - 10, // Reduced spacing for smaller text
+    y: currentY,
     size: TEXT_SIZES.date,
     font: customFont,
     color: color
   });
+  currentY -= TEXT_SIZES.lineHeight + 2;
 
-  // 4. Name (using TEXT_SIZES.name - bold)
-  let nameText = signer.name || '';
-  const maxNameWidth = boxWidth - 10;
-  while (boldFont.widthOfTextAtSize(nameText, TEXT_SIZES.name) > maxNameWidth && nameText.length > 3) {
-    nameText = nameText.slice(0, -4) + '...';
-  }
+  // 4. Name (FULL NAME, no truncation, centered)
+  const nameText = signer.name || '';
   const nameWidth = boldFont.widthOfTextAtSize(nameText, TEXT_SIZES.name);
+  
+  // If name is too wide, reduce font size slightly instead of truncating
+  let finalNameSize = TEXT_SIZES.name;
+  let finalNameWidth = nameWidth;
+  
+  if (nameWidth > boxWidth - 10) {
+    finalNameSize = TEXT_SIZES.name - 1;
+    finalNameWidth = boldFont.widthOfTextAtSize(nameText, finalNameSize);
+  }
+  if (finalNameWidth > boxWidth - 10) {
+    finalNameSize = TEXT_SIZES.name - 2;
+    finalNameWidth = boldFont.widthOfTextAtSize(nameText, finalNameSize);
+  }
+  
   page.drawText(nameText, {
-    x: x + (boxWidth - nameWidth) / 2,
-    y: y - 18, // Tighter spacing
-    size: TEXT_SIZES.name,
+    x: x + (boxWidth - finalNameWidth) / 2,
+    y: currentY,
+    size: finalNameSize,
     font: boldFont,
     color: color
   });
+  currentY -= TEXT_SIZES.lineHeight + 2;
 
-  // 5. Designation (using TEXT_SIZES.designation)
-  let desigText = signer.designation || '';
-  while (customFont.widthOfTextAtSize(desigText, TEXT_SIZES.designation) > maxNameWidth && desigText.length > 3) {
-    desigText = desigText.slice(0, -4) + '...';
+  // 5. Designation (Multi-line, full text)
+  const desigText = signer.designation || '';
+  const desigLines = wrapText(desigText, boxWidth - 10, customFont, TEXT_SIZES.designation);
+  
+  for (const line of desigLines) {
+    const lineWidth = customFont.widthOfTextAtSize(line, TEXT_SIZES.designation);
+    page.drawText(line, {
+      x: x + (boxWidth - lineWidth) / 2,
+      y: currentY,
+      size: TEXT_SIZES.designation,
+      font: customFont,
+      color: color
+    });
+    currentY -= TEXT_SIZES.lineHeight;
   }
-  const desigWidth = customFont.widthOfTextAtSize(desigText, TEXT_SIZES.designation);
-  page.drawText(desigText, {
-    x: x + (boxWidth - desigWidth) / 2,
-    y: y - 26, // Tighter spacing
-    size: TEXT_SIZES.designation,
-    font: customFont,
-    color: color
-  });
+  
+  // 6. Organization (if exists, multi-line)
+  if (signer.organization) {
+    const orgLines = wrapText(signer.organization, boxWidth - 10, customFont, TEXT_SIZES.designation);
+    for (const line of orgLines) {
+      const lineWidth = customFont.widthOfTextAtSize(line, TEXT_SIZES.designation);
+      page.drawText(line, {
+        x: x + (boxWidth - lineWidth) / 2,
+        y: currentY,
+        size: TEXT_SIZES.designation,
+        font: customFont,
+        color: color
+      });
+      currentY -= TEXT_SIZES.lineHeight;
+    }
+  }
 }
 
 async function processImage(pdfDoc, imagePath, signers) {
@@ -323,7 +387,8 @@ async function processImage(pdfDoc, imagePath, signers) {
     ? await pdfDoc.embedPng(imageBytes) 
     : await pdfDoc.embedJpg(imageBytes);
 
-  const sigSpace = Math.min(400, signers.length * 100);
+  // Calculate needed height based on signers
+  const sigSpace = signers.length <= 2 ? 300 : 500;
   const pageHeight = image.height + sigSpace;
   
   const page = pdfDoc.addPage([image.width, pageHeight]);

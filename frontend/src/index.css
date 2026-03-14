@@ -139,3 +139,21 @@ body {
     display: none !important;
   }
 }
+
+
+.pdf-viewer-mobile {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 20px;
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.pdf-viewer-mobile canvas {
+  max-width: 100%;
+  height: auto !important;
+  display: block;
+  margin: 0 auto;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
