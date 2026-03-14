@@ -16,36 +16,47 @@ const VerificationPage = () => {
   const [activeTab, setActiveTab] = useState<"certificate" | "documents">("certificate");
 
   useEffect(() => {
+
+    
     const verifyCertificate = async () => {
-      try {
-        setLoading(true);
-        const response = await api.get(`/files/verify/${certificateNumber}`);
-        const data = response.data;
-        
-        setVerificationData(data);
+    try {
+      setLoading(true);
+      const response = await api.get(`/files/verify/${certificateNumber}`);
+      const data = response.data;
+      
+      setVerificationData(data);
+      console.log('🔍 API Response:', response.data);
+console.log('🔍 data.upload:', data.upload);
+console.log('🔍 processedFiles after mapping:', processedFiles);
+      // ✅ Fixed: Trim baseURL
+      const baseURL = "https://bangladesh-apostille-api.onrender.com".trim();
 
-        const baseURL = "https://bangladesh-apostille-api.onrender.com";
-
-        // 1. Map the main Certificate PDF URL
-        if (data.certificatePath) {
-          setCertificateUrl(`${baseURL}/${data.certificatePath.replace(/^\/+/, '')}`);
-        }
-
-        // 2. Map the Verified Documents (Handling the upload.verified_paths nesting)
-        if (data.upload && data.upload.verified_paths) {
-          const urls = data.upload.verified_paths.map((p: string) => {
-            return `${baseURL}/${p.replace(/^\/+/, '')}`;
-          });
-          setProcessedFiles(urls);
-        }
-        
-        setLoading(false);
-      } catch (err: any) {
-        console.error("Verification failed", err);
-        setError(err.response?.data?.message || "যাচাইকরণ ব্যর্থ হয়েছে");
-        setLoading(false);
+      // 1. Certificate PDF (uses /uploads/certificates/ route)
+      if (data.certificatePath) {
+        setCertificateUrl(`${baseURL}/${data.certificatePath.replace(/^\/+/, '')}`);
       }
-    };
+
+      // 2. ✅ FIXED: Verified Documents - extract filename, use /verified/ route
+      if (data.upload && data.upload.verified_paths && data.upload.verified_paths.length > 0) {
+        const urls = data.upload.verified_paths.map((p: string) => {
+          // Extract just the filename: "uploads/verified/file.pdf" → "file.pdf"
+          const filename = p.split('/').pop() || p;
+          // Build URL using the PUBLIC /verified/ route
+          return `${baseURL}/verified/${filename}`;
+        });
+        console.log("🔗 Built document URLs:", urls); // Debug log
+        setProcessedFiles(urls);
+      } else {
+        console.warn("⚠️ No verified_paths found in response:", data.upload);
+      }
+      
+      setLoading(false);
+    } catch (err: any) {
+      console.error("Verification failed", err);
+      setError(err.response?.data?.message || "যাচাইকরণ ব্যর্থ হয়েছে");
+      setLoading(false);
+    }
+  };
 
     verifyCertificate();
   }, [certificateNumber]);

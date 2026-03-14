@@ -302,7 +302,11 @@ router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
     console.log('🔍 Fetching verified data for:', certificateNumber);
-
+    console.log('🔍 DB raw data:', {
+  verified_paths: upload.verified_paths,
+  reuploaded_file_paths: upload.reuploaded_file_paths
+});
+console.log('🔍 After cleanPaths:', cleanPaths(upload.verified_paths || upload.reuploaded_file_paths));
     // 1. Fetch the data from the DB
     const result = await pool.query(
       `SELECT uploads.*, users.name as user_name, verifier.name as verified_by_name
