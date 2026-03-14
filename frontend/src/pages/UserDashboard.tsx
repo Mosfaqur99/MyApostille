@@ -2,17 +2,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-
 import axios from '../api';
-
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 import { toast } from 'react-toastify';
 import { gsap } from 'gsap';
 import { extractFilename } from '../Utils/FileUtils';
-
 import api from '../api';
-
 
 const UserDashboard = () => {
   const { user, logout } = useAuth();
@@ -30,47 +26,18 @@ const UserDashboard = () => {
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceFileInputRef = useRef<HTMLInputElement>(null);
-  // ADD: State for image blobs (for viewing with auth)
-const [imageBlobs, setImageBlobs] = useState<{[key: string]: string}>({});
-
-// ADD: Function to fetch images with auth token
-// ADD: Function to fetch images with auth token
-const fetchImageWithAuth = async (fileUrl: string, filename: string) => {
-  try {
-    const token = localStorage.getItem('token');
-    const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com';
-    
-    // fileUrl already starts with /api/files/uploads/...
-    // So use API_BASE_URL + fileUrl (not baseURL config)
-    const fullUrl = `${API_BASE_URL}${fileUrl}`;
-    
-    const response = await axios.get(fullUrl, {
-      headers: { 'x-auth-token': token },
-      responseType: 'blob'
-      // NO baseURL here!
-    });
-    
-    const blobUrl = URL.createObjectURL(response.data);
-    setImageBlobs(prev => ({ ...prev, [filename]: blobUrl }));
-    return blobUrl;
-  } catch (error) {
-    console.error('Failed to load image:', error);
-    return null;
-  }
-};
-
-// ADD: Cleanup function
-const clearImageBlobs = () => {
-  Object.values(imageBlobs).forEach(url => URL.revokeObjectURL(url));
-  setImageBlobs({});
-};
-const [currentFiles, setCurrentFiles] = useState<any[]>([]);
-const [newFiles, setNewFiles] = useState<File[]>([]);
-const [newFilePreviews, setNewFilePreviews] = useState<string[]>([]);
-const [isDraggingNew, setIsDraggingNew] = useState(false);
-const [filesToRemove, setFilesToRemove] = useState<number[]>([]);
-const [isSaving, setIsSaving] = useState(false);
-const newFileInputRef = useRef<HTMLInputElement>(null);
+  
+  // State for image blobs (for viewing with auth)
+  const [imageBlobs, setImageBlobs] = useState<{[key: string]: string}>({});
+  
+  // Edit modal states
+  const [currentFiles, setCurrentFiles] = useState<any[]>([]);
+  const [newFiles, setNewFiles] = useState<File[]>([]);
+  const [newFilePreviews, setNewFilePreviews] = useState<string[]>([]);
+  const [isDraggingNew, setIsDraggingNew] = useState(false);
+  const [filesToRemove, setFilesToRemove] = useState<number[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const newFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchUploads();
@@ -82,39 +49,83 @@ const newFileInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     return () => {
       previewUrls.forEach(url => URL.revokeObjectURL(url));
+      clearImageBlobs();
     };
   }, [previewUrls]);
 
   // Initialize current files when edit modal opens
-useEffect(() => {
-  if (editingUpload) {
-    // Initialize current files from editingUpload
-    const files = getFileUrls(editingUpload).map((file, index) => ({
-      url: file.url,
-      name: file.name,
-      type: editingUpload.file_type || 'image',
-      size: editingUpload.file_size || 0,
-      isExisting: true,
-      originalIndex: index
-    }));
-    setCurrentFiles(files);
-    setNewFiles([]);
-    setNewFilePreviews([]);
-    setFilesToRemove([]);
-  }
-}, [editingUpload]);
+  useEffect(() => {
+    if (editingUpload) {
+      // Initialize current files from editingUpload
+      const files = getFileUrls(editingUpload).map((file, index) => ({
+        url: file.url,
+        name: file.name,
+        type: editingUpload.file_type || 'image',
+        size: editingUpload.file_size || 0,
+        isExisting: true,
+        originalIndex: index
+      }));
+      setCurrentFiles(files);
+      setNewFiles([]);
+      setNewFilePreviews([]);
+      setFilesToRemove([]);
+      
+      // Load images with auth for edit modal
+      files.forEach(file => {
+        if (file.type.includes('image') || file.name.match(/\.(jpg|jpeg|png)$/i)) {
+          fetchImageWithAuth(file.url, file.name);
+        }
+      });
+    }
+  }, [editingUpload]);
+
+  // Cleanup when edit modal closes
+  useEffect(() => {
+    if (!editingUpload) {
+      clearImageBlobs();
+      setCurrentFiles([]);
+      setNewFiles([]);
+      setNewFilePreviews([]);
+      setFilesToRemove([]);
+    }
+  }, [editingUpload]);
 
   const fetchUploads = async () => {
     try {
-
-      const res = await api.get('/files/my-uploads');;
-
+      const res = await api.get('/files/my-uploads');
       setUploads(res.data);
       setLoading(false);
     } catch (err) {
       console.error('Error fetching uploads:', err);
       setLoading(false);
     }
+  };
+
+  // Function to fetch images with auth token
+  const fetchImageWithAuth = async (fileUrl: string, filename: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      // fileUrl is already the API endpoint like /api/files/uploads/filename.jpg
+      // Use the api instance which has baseURL configured
+      const response = await api.get(fileUrl, {
+        headers: { 'x-auth-token': token },
+        responseType: 'blob'
+      });
+      
+      const blobUrl = URL.createObjectURL(response.data);
+      setImageBlobs(prev => ({ ...prev, [filename]: blobUrl }));
+      return blobUrl;
+    } catch (error) {
+      console.error('Failed to load image:', error);
+      return null;
+    }
+  };
+
+  // Cleanup function
+  const clearImageBlobs = () => {
+    Object.values(imageBlobs).forEach(url => URL.revokeObjectURL(url));
+    setImageBlobs({});
   };
 
   const handleLogout = () => {
@@ -127,169 +138,77 @@ useEffect(() => {
   };
 
   const handleChangePassword = () => {
-    toast.warning('পাসওয়ার্ড পরিবর্তন পৃষ্ঠা শীঘ্রই যোগ করা হবে', {
-      autoClose: 3000
-    });
+    navigate("/reset-password");
   };
 
   // Handle new files selection in edit modal
-const handleNewFilesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-  if (e.target.files) {
-    const filesArray = Array.from(e.target.files);
-    const validFiles: File[] = [];
-    const invalidFiles: string[] = [];
-    
-    filesArray.forEach(file => {
-      if (!['image/png', 'image/jpeg', 'application/pdf'].includes(file.type)) {
-        invalidFiles.push(file.name);
-        return;
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        invalidFiles.push(`${file.name} (too large)`);
-        return;
-      }
-      validFiles.push(file);
-    });
-    
-    if (invalidFiles.length > 0) {
-      toast.error(`অবৈধ ফাইল: ${invalidFiles.join(', ')}`);
-    }
-    
-    if (validFiles.length > 0) {
-      setNewFiles(prev => [...prev, ...validFiles]);
+  const handleNewFilesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const filesArray = Array.from(e.target.files);
+      const validFiles: File[] = [];
+      const invalidFiles: string[] = [];
       
-      // Generate previews
-      const previews = validFiles.map(file => URL.createObjectURL(file));
-      setNewFilePreviews(prev => [...prev, ...previews]);
+      filesArray.forEach(file => {
+        if (!['image/png', 'image/jpeg', 'application/pdf'].includes(file.type)) {
+          invalidFiles.push(file.name);
+          return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          invalidFiles.push(`${file.name} (too large)`);
+          return;
+        }
+        validFiles.push(file);
+      });
       
-      toast.success(`${validFiles.length}টি নতুন ফাইল যোগ করা হয়েছে`);
+      if (invalidFiles.length > 0) {
+        toast.error(`অবৈধ ফাইল: ${invalidFiles.join(', ')}`);
+      }
+      
+      if (validFiles.length > 0) {
+        setNewFiles(prev => [...prev, ...validFiles]);
+        
+        // Generate previews
+        const previews = validFiles.map(file => URL.createObjectURL(file));
+        setNewFilePreviews(prev => [...prev, ...previews]);
+        
+        toast.success(`${validFiles.length}টি নতুন ফাইল যোগ করা হয়েছে`);
+      }
+      
+      // Reset input
+      if (newFileInputRef.current) newFileInputRef.current.value = '';
     }
-    
-    // Reset input
-    if (newFileInputRef.current) newFileInputRef.current.value = '';
-  }
-};
-
-// Handle drag & drop for new files
-const handleNewFilesDrop = (e: React.DragEvent<HTMLDivElement>) => {
-  e.preventDefault();
-  setIsDraggingNew(false);
-  if (e.dataTransfer.files) {
-    const event = {
-      target: { files: e.dataTransfer.files }
-    } as unknown as React.ChangeEvent<HTMLInputElement>;
-    handleNewFilesSelect(event);
-  }
-};
-
-// Remove new file from selection
-const removeNewFile = (index: number) => {
-  setNewFiles(prev => prev.filter((_, i) => i !== index));
-  setNewFilePreviews(prev => {
-    URL.revokeObjectURL(prev[index]);
-    return prev.filter((_, i) => i !== index);
-  });
-  toast.info('ফাইল মুছে ফেলা হয়েছে');
-};
-
-// Remove current file (frontend only - will be handled on save)
-const removeCurrentFile = (index: number) => {
-  setCurrentFiles(prev => prev.filter((_, i) => i !== index));
-  toast.info('ফাইল মুছে ফেলা হয়েছে (সেভ করার পর চূড়ান্ত হবে)');
-};
-const handleSavePartialChanges = async () => {
-  if (filesToRemove.length === 0 && newFiles.length === 0) {
-    toast.error('অন্তত একটি পরিবর্তন করুন (ফাইল মুছুন বা নতুন ফাইল যোগ করুন)');
-    return;
-  }
-  
-  // Prepare request body
-  const requestBody = {
-    removeFiles: filesToRemove,
-    addFiles: []
   };
-  
-  // Create FormData for new files
-  const formData = new FormData();
-  newFiles.forEach(file => {
-    formData.append('files', file);
-  });
-  
-  // Add request body as JSON
-  formData.append('operations', JSON.stringify(requestBody));
-  
-  setIsSaving(true);
-  try {
-    // Use PATCH instead of PUT for partial updates
-    const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
-    const response = await api.patch(
-  `/files/edit/${editingUpload.id}`,
-  formData
-);
-
-    
-    toast.success(response.data.message);
-    fetchUploads();
-    setEditingUpload(null);
-    setCurrentFiles([]);
-    setNewFiles([]);
-    setNewFilePreviews([]);
-    setFilesToRemove([]);
-  } catch (error: any) {
-    console.error('Partial update failed', error);
-    toast.error(error.response?.data?.message || 'পরিবর্তন সংরক্ষণ ব্যর্থ হয়েছে');
-  } finally {
-    setIsSaving(false);
-  }
-};
-// Save all changes
-const handleSaveEditChanges = async () => {
-  if (currentFiles.length === 0 && newFiles.length === 0) {
-    toast.error('অন্তত একটি ফাইল রাখুন');
-    return;
-  }
-  
-  // CRITICAL: Use absolute URL for API calls
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-  
-  const formData = new FormData();
-  
-  // Add new files
-  newFiles.forEach(file => {
-    formData.append('files', file);
-  });
-  
-  setIsSaving(true);
-  try {
-    // CRITICAL: Use absolute URL to avoid 400 errors
-    const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-    await api.put(
-  `/files/replace/${editingUpload.id}`, 
-  formData
-);
-
-    
-    toast.success('ফাইলসমূহ সফলভাবে আপডেট করা হয়েছে!');
-    fetchUploads();
-    setEditingUpload(null);
-    setCurrentFiles([]);
-    setNewFiles([]);
-    setNewFilePreviews([]);
-  } catch (error: any) {
-    console.error('Update failed', error);
-    
-    // Handle specific backend errors
-    if (error.response && error.response.status === 400) {
-      toast.error('অবৈধ ফাইল ফর্ম্যাট বা আকার। দয়া করে আপনার ফাইল চেক করুন।');
-    } else {
-      toast.error(error.response?.data?.message || 'আপডেট ব্যর্থ হয়েছে');
+  // Handle drag & drop for new files
+  const handleNewFilesDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingNew(false);
+    if (e.dataTransfer.files) {
+      const event = {
+        target: { files: e.dataTransfer.files }
+      } as unknown as React.ChangeEvent<HTMLInputElement>;
+      handleNewFilesSelect(event);
     }
-  } finally {
-    setIsSaving(false);
-  }
-};
+  };
+
+  // Remove new file from selection
+  const removeNewFile = (index: number) => {
+    setNewFiles(prev => prev.filter((_, i) => i !== index));
+    setNewFilePreviews(prev => {
+      URL.revokeObjectURL(prev[index]);
+      return prev.filter((_, i) => i !== index);
+    });
+    toast.info('ফাইল মুছে ফেলা হয়েছে');
+  };
+
+  // Toggle file removal selection
+  const toggleFileRemoval = (index: number) => {
+    if (filesToRemove.includes(index)) {
+      setFilesToRemove(prev => prev.filter(i => i !== index));
+    } else {
+      setFilesToRemove(prev => [...prev, index]);
+    }
+  };
 
   // Handle file selection for NEW upload modal
   const handleFileSelect = (files: FileList | null) => {
@@ -376,16 +295,14 @@ const handleSaveEditChanges = async () => {
 
     setIsUploading(true);
     try {
-
       await api.post('/files/upload', formData, {
-  onUploadProgress: (progressEvent: any) => {
-    if (progressEvent.total) {
-      const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-      console.log(`Upload progress: ${percentCompleted}%`);
-    }
-  }
-});
-
+        onUploadProgress: (progressEvent: any) => {
+          if (progressEvent.total) {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            console.log(`Upload progress: ${percentCompleted}%`);
+          }
+        }
+      });
       
       toast.success(`${selectedFiles.length} image${selectedFiles.length > 1 ? 's' : ''} uploaded successfully!`);
       
@@ -421,160 +338,88 @@ const handleSaveEditChanges = async () => {
   };
 
   // Handle EDIT upload - Open modal with current files
-  const handleEditUpload = async (upload: any) => {
-    // For editing, we need to show current files
-    // Since we can't re-upload existing files without downloading them,
-    // we'll show them for viewing and allow complete replacement
+  const handleEditUpload = (upload: any) => {
     setEditingUpload(upload);
-    
-    // Clear previous selection
-    setSelectedFiles([]);
-    previewUrls.forEach(url => URL.revokeObjectURL(url));
-    setPreviewUrls([]);
   };
 
-  // Handle REPLACE files in edit modal
-  const handleReplaceFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0 || !editingUpload) return;
-
-    const filesArray = Array.from(files);
-    const validFiles: File[] = [];
-    const invalidFiles: string[] = [];
-    
-    filesArray.forEach(file => {
-      const validTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
-      if (!validTypes.includes(file.type)) {
-        invalidFiles.push(file.name);
-        return;
-      }
-      
-      if (file.size > 10 * 1024 * 1024) {
-        invalidFiles.push(`${file.name} (too large)`);
-        return;
-      }
-      
-      validFiles.push(file);
-    });
-
-    if (invalidFiles.length > 0) {
-      toast.error(`Invalid files: ${invalidFiles.join(', ')}`);
+  // Save partial changes (add/remove files)
+  const handleSavePartialChanges = async () => {
+    if (filesToRemove.length === 0 && newFiles.length === 0) {
+      toast.error('অন্তত একটি পরিবর্তন করুন (ফাইল মুছুন বা নতুন ফাইল যোগ করুন)');
       return;
     }
-
-    if (validFiles.length === 0) return;
-
+    
+    // Create FormData for new files
     const formData = new FormData();
-    validFiles.forEach(file => {
+    newFiles.forEach(file => {
       formData.append('files', file);
     });
-
+    
+    // Add removal info
+    formData.append('removeIndices', JSON.stringify(filesToRemove));
+    
+    setIsSaving(true);
     try {
-
-      await api.put(`/files/replace/${editingUpload.id}`, formData);
-
+      const response = await api.patch(
+        `/files/edit/${editingUpload.id}`,
+        formData
+      );
       
-      const fileCount = validFiles.length;
-      toast.success(`${fileCount} file${fileCount > 1 ? 's' : ''} replaced successfully!`);
+      toast.success(response.data.message || 'ফাইলসমূহ সফলভাবে আপডেট করা হয়েছে!');
       fetchUploads();
       setEditingUpload(null);
-      setSelectedFiles([]);
-      previewUrls.forEach(url => URL.revokeObjectURL(url));
-      setPreviewUrls([]);
     } catch (error: any) {
-      console.error('Replace failed', error);
-      toast.error(error.response?.data?.message || 'ফাইল প্রতিস্থাপন ব্যর্থ হয়েছে');
-      setEditingUpload(null);
+      console.error('Partial update failed', error);
+      toast.error(error.response?.data?.message || 'পরিবর্তন সংরক্ষণ ব্যর্থ হয়েছে');
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  // Handle REPLACE file selection in edit modal
-  const handleReplaceFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (editingUpload && e.target.files) {
-      handleReplaceFiles(e.target.files);
-      e.target.value = '';
-    }
-  };
-
-  // Trigger REPLACE dialog in edit modal
-  const triggerReplaceDialog = () => {
-    setTimeout(() => {
-      replaceFileInputRef.current?.click();
-    }, 0);
-  };
-
-  // Handle delete upload
-  // const handleDeleteUpload = async (uploadId: number) => {
-  //   if (!window.confirm('আপনি কি নিশ্চিত আপনি এই আবেদনটি মুছে ফেলতে চান? এই কাজটি পূর্বাবস্থায় ফেরানো যাবে না।')) {
-  //     return;
-  //   }
-
-  //   try {
-  //     await axios.delete(`/api/files/${uploadId}`);
-  //     toast.success('আবেদন সফলভাবে মুছে ফেলা হয়েছে!');
-  //     fetchUploads();
-  //   } catch (error: any) {
-  //     console.error('Delete failed', error);
-  //     toast.error(error.response?.data?.message || 'আবেদন মোছা ব্যর্থ হয়েছে');
-  //   }
-  // };
-
-  // Handle view upload
- // REPLACE handleViewUpload function:
-
-// REPLACE handleViewUpload:
-
-const handleViewUpload = (upload: any) => {
-  // Clear previous blobs
-  clearImageBlobs();
-  
-  if (upload.file_type === 'pdf') {
-    // For PDF, just show message - no download
-    toast.info('PDF ফাইল দেখার জন্য ডাউনলোড করুন না');
-    return;
-  } else {
+  // Handle view upload - FIXED VERSION
+  const handleViewUpload = (upload: any) => {
+    // Clear previous blobs
+    clearImageBlobs();
     setViewingUpload(upload);
-    // Load images with auth
+    
+    // Load images with auth for view modal
     const files = getFileUrls(upload);
     files.forEach(file => {
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com';
-      fetchImageWithAuth(file.url, file.name);
+      if (file.name.match(/\.(jpg|jpeg|png)$/i)) {
+        fetchImageWithAuth(file.url, file.name);
+      }
     });
-  }
-};
+  };
 
-  // Get file URLs for viewing
-
-
-const getFileUrls = (upload: any) => {
-  if (!upload) return [];
-  
-  let files: any[] = [];
-  
-  if (upload.file_paths && Array.isArray(upload.file_paths)) {
-    files = upload.file_paths;
-  } else if (upload.file_path) {
-    files = [{ path: upload.file_path, original_name: upload.original_filename }];
-  }
-  
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com';
-  
-  return files.map((file, index) => {
-    let filename = '';
-    if (typeof file === 'string') {
-      filename = file.replace(/^.*[\\\/]/, '');
-    } else if (file.path) {
-      filename = file.path.replace(/^.*[\\\/]/, '');
+  // Get file URLs - FIXED to return API endpoints
+  const getFileUrls = (upload: any) => {
+    if (!upload) return [];
+    
+    let files: any[] = [];
+    
+    if (upload.file_paths && Array.isArray(upload.file_paths)) {
+      files = upload.file_paths;
+    } else if (upload.file_path) {
+      files = [{ path: upload.file_path, original_name: upload.original_filename }];
     }
     
-    filename = filename.split('?')[0];
-    
-    return {
-      // Use API endpoint (requires auth)
-      url: `${API_BASE_URL}/api/files/uploads/${encodeURIComponent(filename)}`,
-      name: file.original_name || file.name || filename || `File ${index + 1}`
-    };
-  });
-};
+    return files.map((file, index) => {
+      let filename = '';
+      if (typeof file === 'string') {
+        filename = file.replace(/^.*[\\\/]/, '');
+      } else if (file.path) {
+        filename = file.path.replace(/^.*[\\\/]/, '');
+      }
+      
+      filename = filename.split('?')[0];
+      
+      return {
+        // Return API endpoint that requires auth (matches your backend route)
+        url: `/files/uploads/${encodeURIComponent(filename)}`,
+        name: file.original_name || file.name || filename || `File ${index + 1}`
+      };
+    });
+  };
 
   if (loading) {
     return (
@@ -611,24 +456,21 @@ const getFileUrls = (upload: any) => {
           </div>
           
           <div className="flex flex-wrap gap-3">
-            {/* FIXED: New Application button now opens modal */}
             <button 
-  onClick={() => {
-    // Clear any edit state first
-    setEditingUpload(null);
-    setSelectedFiles([]);
-    previewUrls.forEach(url => URL.revokeObjectURL(url));
-    setPreviewUrls([]);
-    // Open upload modal
-    setIsUploadModalOpen(true);
-  }}
-  className="bg-green-600 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-green-700 transition-all duration-300 shadow-md hover:shadow-lg flex items-center gap-2"
->
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-  </svg>
-  নতুন আবেদন
-</button>
+              onClick={() => {
+                setEditingUpload(null);
+                setSelectedFiles([]);
+                previewUrls.forEach(url => URL.revokeObjectURL(url));
+                setPreviewUrls([]);
+                setIsUploadModalOpen(true);
+              }}
+              className="bg-green-600 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-green-700 transition-all duration-300 shadow-md hover:shadow-lg flex items-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              নতুন আবেদন
+            </button>
             
             <button 
               onClick={handleContact}
@@ -754,7 +596,6 @@ const getFileUrls = (upload: any) => {
                                 </svg>
                                 দেখুন
                               </button>
-                              {/* FIXED: Edit button now opens modal with current files */}
                               <button
                                 onClick={() => handleEditUpload(upload)}
                                 className="px-3 py-1 border border-purple-600 text-purple-700 text-xs font-medium rounded-full bg-purple-50 hover:bg-purple-100 transition-colors flex items-center gap-1"
@@ -765,24 +606,14 @@ const getFileUrls = (upload: any) => {
                                 </svg>
                                 সম্পাদনা
                               </button>
-                              {/* <button
-                                onClick={() => handleDeleteUpload(upload.id)}
-                                className="px-3 py-1 border border-red-600 text-red-700 text-xs font-medium rounded-full bg-red-50 hover:bg-red-100 transition-colors flex items-center gap-1"
-                                title="আবেদন মুছুন"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                                মুছুন
-                              </button> */}
                             </div>
                           ) : (
                             <button
-  onClick={() => navigate(`/verify/${upload.certificate_number}`)}
-  className="inline-flex items-center px-3 py-1 border border-green-600 text-green-700 text-xs font-medium rounded-full bg-green-50 hover:bg-green-100 transition-colors"
->
-  দেখুন ও ডাউনলোড
-</button>
+                              onClick={() => navigate(`/verify/${upload.certificate_number}`)}
+                              className="inline-flex items-center px-3 py-1 border border-green-600 text-green-700 text-xs font-medium rounded-full bg-green-50 hover:bg-green-100 transition-colors"
+                            >
+                              দেখুন ও ডাউনলোড
+                            </button>
                           )}
                         </td>
                       </tr>
@@ -794,7 +625,7 @@ const getFileUrls = (upload: any) => {
           )}
         </div>
 
-        {/* NEW UPLOAD MODAL - FIXED BUTTON */}
+        {/* NEW UPLOAD MODAL */}
         {isUploadModalOpen && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-auto">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
@@ -967,285 +798,264 @@ const getFileUrls = (upload: any) => {
           </div>
         )}
 
-       
-        {/* EDIT UPLOAD MODAL - EXACTLY AS REQUESTED */}
-{editingUpload && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-auto">
-    <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
-      <div className="p-5 border-b border-gray-200 flex justify-between items-center bg-gradient-to-r from-purple-50 to-purple-100">
-        <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-          </svg>
-          আবেদন সম্পাদনা করুন: #{editingUpload.id}
-        </h3>
-        <button 
-          onClick={() => {
-            setEditingUpload(null);
-            setCurrentFiles([]);
-            setNewFiles([]);
-            setNewFilePreviews([]);
-            setFilesToRemove([]);
-          }}
-          className="text-gray-400 hover:text-gray-600 transition-colors p-2 hover:bg-gray-100 rounded-full"
-          title="বন্ধ করুন"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-      
-      <div className="p-6 overflow-y-auto">
-        {/* CURRENT FILES SECTION - WITH INDIVIDUAL DELETE */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 01-3 3H1m8-9a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              বর্তমান ফাইলসমূহ ({currentFiles.length})
-            </h4>
-            <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-              {filesToRemove.length}টি মুছার জন্য নির্বাচিত
-            </span>
-          </div>
-          
-          {currentFiles.length === 0 ? (
-            <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-              <div className="text-5xl mb-3">📭</div>
-              <p className="text-gray-600 font-medium">কোনো ফাইল নেই</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {currentFiles.map((file, index) => (
-                <div key={`current-${index}`} className="border rounded-lg overflow-hidden bg-gray-50 group relative">
-                  <div className="aspect-square relative bg-gray-200">
-                    {file.type.includes('image') ? (
-                      <img 
-                        src={file.url} 
-                        alt={`Current ${index + 1}`} 
-                        className="w-full h-full object-contain p-2"
-                        onError={(e) => {
-                          e.currentTarget.parentElement!.innerHTML = `
-                            <div class="w-full h-full flex items-center justify-center bg-gray-100">
-                              <div class="text-center p-3">
-                                <div class="text-3xl mb-2">⚠️</div>
-                                <p class="text-xs text-gray-600">লোড ব্যর্থ</p>
+        {/* EDIT UPLOAD MODAL - FIXED VERSION */}
+        {editingUpload && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-auto">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+              <div className="p-5 border-b border-gray-200 flex justify-between items-center bg-gradient-to-r from-purple-50 to-purple-100">
+                <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  আবেদন সম্পাদনা করুন: #{editingUpload.id}
+                </h3>
+                <button 
+                  onClick={() => {
+                    setEditingUpload(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors p-2 hover:bg-gray-100 rounded-full"
+                  title="বন্ধ করুন"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto">
+                {/* CURRENT FILES SECTION */}
+                <div className="mb-8">
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 01-3 3H1m8-9a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      বর্তমান ফাইলসমূহ ({currentFiles.length})
+                    </h4>
+                    <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                      {filesToRemove.length}টি মুছার জন্য নির্বাচিত
+                    </span>
+                  </div>
+                  
+                  {currentFiles.length === 0 ? (
+                    <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                      <div className="text-5xl mb-3">📭</div>
+                      <p className="text-gray-600 font-medium">কোনো ফাইল নেই</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {currentFiles.map((file, index) => (
+                        <div key={`current-${index}`} className={`border rounded-lg overflow-hidden bg-gray-50 group relative ${
+                          filesToRemove.includes(index) ? 'opacity-50 border-red-300' : ''
+                        }`}>
+                          <div className="aspect-square relative bg-gray-200">
+                            {imageBlobs[file.name] ? (
+                              <img 
+                                src={imageBlobs[file.name]} 
+                                alt={`Current ${index + 1}`} 
+                                className="w-full h-full object-contain p-2"
+                              />
+                            ) : file.name.match(/\.pdf$/i) ? (
+                              <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100 p-2">
+                                <div className="text-4xl mb-2">📄</div>
+                                <p className="text-xs text-gray-600 text-center">PDF ফাইল</p>
                               </div>
-                            </div>
-                          `;
-                        }}
-                      />
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100 p-2">
-                        <div className="text-4xl mb-2">📄</div>
-                        <p className="text-xs text-gray-600 text-center">PDF ফাইল</p>
-                      </div>
-                    )}
-                    {/* DELETE BUTTON FOR CURRENT FILE */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // Toggle file removal
-                        if (filesToRemove.includes(index)) {
-                          setFilesToRemove(prev => prev.filter(i => i !== index));
-                        } else {
-                          setFilesToRemove(prev => [...prev, index]);
-                        }
-                      }}
-                      className={`absolute top-2 right-2 ${
-                        filesToRemove.includes(index) 
-                          ? 'bg-green-500' 
-                          : 'bg-red-500'
-                      } text-white p-1.5 rounded-full opacity-100 group-hover:opacity-100 transition-opacity hover:opacity-100 shadow-lg z-10`}
-                      title={filesToRemove.includes(index) ? "মুছার জন্য বাতিল করুন" : "এই ফাইল মুছুন"}
-                    >
-                      {filesToRemove.includes(index) ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                  <div className="p-2 text-center">
-                    <p className="text-xs font-medium text-gray-800 truncate" title={file.name}>
-                      {file.name.length > 15 ? file.name.substring(0, 12) + '...' : file.name}
-                    </p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">
-                      {file.size ? `${file.size} KB` : ''}
-                    </p>
-                  </div>
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+                              </div>
+                            )}
+                            
+                            {/* Toggle removal button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleFileRemoval(index);
+                              }}
+                              className={`absolute top-2 right-2 ${
+                                filesToRemove.includes(index) 
+                                  ? 'bg-green-500 hover:bg-green-600' 
+                                  : 'bg-red-500 hover:bg-red-600'
+                              } text-white p-1.5 rounded-full transition-colors shadow-lg z-10`}
+                              title={filesToRemove.includes(index) ? "মুছার জন্য বাতিল করুন" : "এই ফাইল মুছুন"}
+                            >
+                              {filesToRemove.includes(index) ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                          <div className="p-2 text-center">
+                            <p className="text-xs font-medium text-gray-800 truncate" title={file.name}>
+                              {file.name.length > 15 ? file.name.substring(0, 12) + '...' : file.name}
+                            </p>
+                            {filesToRemove.includes(index) && (
+                              <p className="text-[10px] text-red-600 font-medium mt-0.5">মুছার জন্য নির্বাচিত</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <p className="text-sm text-yellow-600 mt-3">
+                    ⚠️ <strong>নোট:</strong> ফাইল মুছার জন্য একটি বা একাধিক ফাইল নির্বাচন করুন (লাল X বাটনে ক্লিক করুন)। সেভ করার পর পরিবর্তনগুলো চূড়ান্ত হবে।
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
-          
-          <p className="text-sm text-yellow-600 mt-3">
-            ⚠️ <strong>নোট:</strong> ফাইল মুছার জন্য একটি বা একাধিক ফাইল নির্বাচন করুন (লাল X → সবুজ ✓)। সেভ করার পর পরিবর্তনগুলো চূড়ান্ত হবে।
-          </p>
-        </div>
 
-        {/* ADD NEW FILES SECTION */}
-        <div className="border-t pt-6">
-          <div className="flex justify-between items-center mb-4">
-            <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-              নতুন ফাইল যোগ করুন ({newFiles.length})
-            </h4>
-          </div>
-          
-          <div 
-            className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${
-              isDraggingNew ? 'border-green-500 bg-green-50' : 'border-gray-300 bg-gray-50 hover:border-green-400'
-            }`}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDraggingNew(false);
-              handleNewFilesDrop(e);
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              if (!isDraggingNew) setIsDraggingNew(true);
-            }}
-            onDragLeave={(e) => {
-              e.preventDefault();
-              setIsDraggingNew(false);
-            }}
-            onClick={() => newFileInputRef.current?.click()}
-          >
-            <input
-              type="file"
-              ref={newFileInputRef}
-              className="hidden"
-              accept="image/png, image/jpeg, application/pdf"
-              multiple
-              onChange={handleNewFilesSelect}
-            />
-            
-            <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-            </div>
-            
-            <h3 className="text-xl font-bold text-gray-800 mb-2">ফাইল যোগ করুন</h3>
-            <p className="text-gray-600 mb-4">
-              ফাইলগুলো টেনে আনুন অথবা ক্লিক করে নির্বাচন করুন
-            </p>
-            <p className="text-sm text-gray-500">
-              সমর্থিত: PNG, JPG, PDF | সর্বোচ্চ আকার: 10MB
-            </p>
-          </div>
-
-          {/* NEW FILE PREVIEWS */}
-          {newFiles.length > 0 && (
-            <div className="mt-6">
-              <h5 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 01-3 3H1m8-9a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                নতুন ফাইল প্রিভিউ ({newFiles.length})
-              </h5>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {newFilePreviews.map((preview, index) => (
-                  <div key={`new-${index}`} className="border rounded-lg overflow-hidden bg-white group relative">
-                    <div className="aspect-square relative">
-                      <img 
-                        src={preview} 
-                        alt={`New preview ${index + 1}`} 
-                        className="w-full h-full object-contain p-2"
-                      />
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeNewFile(index);
-                        }}
-                        className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-lg z-10"
-                        title="এই ফাইল মুছুন"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-                    <div className="p-2 text-center">
-                      <p className="text-xs font-medium text-gray-800 truncate" title={newFiles[index].name}>
-                        {newFiles[index].name.length > 15 
-                          ? newFiles[index].name.substring(0, 12) + '...' 
-                          : newFiles[index].name}
-                      </p>
-                      <p className="text-[10px] text-gray-500 mt-0.5">
-                        {Math.round(newFiles[index].size / 1024)} KB
-                      </p>
-                    </div>
+                {/* ADD NEW FILES SECTION */}
+                <div className="border-t pt-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                      নতুন ফাইল যোগ করুন ({newFiles.length})
+                    </h4>
                   </div>
-                ))}
+                  
+                  <div 
+                    className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${
+                      isDraggingNew ? 'border-green-500 bg-green-50' : 'border-gray-300 bg-gray-50 hover:border-green-400'
+                    }`}
+                    onDrop={handleNewFilesDrop}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (!isDraggingNew) setIsDraggingNew(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      setIsDraggingNew(false);
+                    }}
+                    onClick={() => newFileInputRef.current?.click()}
+                  >
+                    <input
+                      type="file"
+                      ref={newFileInputRef}
+                      className="hidden"
+                      accept="image/png, image/jpeg, application/pdf"
+                      multiple
+                      onChange={handleNewFilesSelect}
+                    />
+                    
+                    <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                    </div>
+                    
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">ফাইল যোগ করুন</h3>
+                    <p className="text-gray-600 mb-4">
+                      ফাইলগুলো টেনে আনুন অথবা ক্লিক করে নির্বাচন করুন
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      সমর্থিত: PNG, JPG, PDF | সর্বোচ্চ আকার: 10MB
+                    </p>
+                  </div>
+
+                  {/* NEW FILE PREVIEWS */}
+                  {newFiles.length > 0 && (
+                    <div className="mt-6">
+                      <h5 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 01-3 3H1m8-9a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        নতুন ফাইল প্রিভিউ ({newFiles.length})
+                      </h5>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {newFilePreviews.map((preview, index) => (
+                          <div key={`new-${index}`} className="border rounded-lg overflow-hidden bg-white group relative">
+                            <div className="aspect-square relative">
+                              <img 
+                                src={preview} 
+                                alt={`New preview ${index + 1}`} 
+                                className="w-full h-full object-contain p-2"
+                              />
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeNewFile(index);
+                                }}
+                                className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-lg z-10"
+                                title="এই ফাইল মুছুন"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                            <div className="p-2 text-center">
+                              <p className="text-xs font-medium text-gray-800 truncate" title={newFiles[index].name}>
+                                {newFiles[index].name.length > 15 
+                                  ? newFiles[index].name.substring(0, 12) + '...' 
+                                  : newFiles[index].name}
+                              </p>
+                              <p className="text-[10px] text-gray-500 mt-0.5">
+                                {Math.round(newFiles[index].size / 1024)} KB
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setEditingUpload(null);
+                  }}
+                  className="px-6 py-2.5 border-2 border-gray-400 text-gray-700 rounded-lg font-medium hover:bg-gray-100 transition-colors flex items-center gap-2"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  বাতিল করুন
+                </button>
+                <button
+                  onClick={handleSavePartialChanges}
+                  disabled={isSaving || (filesToRemove.length === 0 && newFiles.length === 0)}
+                  className={`px-6 py-2.5 rounded-lg font-medium text-white flex items-center gap-2 ${
+                    isSaving 
+                      ? 'bg-purple-400 cursor-not-allowed' 
+                      : 'bg-purple-600 hover:bg-purple-700'
+                  } shadow-md hover:shadow-lg transition-colors`}
+                >
+                  {isSaving ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      সংরক্ষণ হচ্ছে...
+                    </>
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {filesToRemove.length > 0 && newFiles.length > 0 
+                        ? `মুছুন (${filesToRemove.length}) + যোগ করুন (${newFiles.length})`
+                        : filesToRemove.length > 0 
+                          ? `মুছুন (${filesToRemove.length})`
+                          : `যোগ করুন (${newFiles.length})`
+                      }
+                    </>
+                  )}
+                </button>
               </div>
             </div>
-          )}
-        </div>
-      </div>
+          </div>
+        )}
 
-      <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
-        <button
-          onClick={() => {
-            setEditingUpload(null);
-            setCurrentFiles([]);
-            setNewFiles([]);
-            setNewFilePreviews([]);
-            setFilesToRemove([]);
-          }}
-          className="px-6 py-2.5 border-2 border-gray-400 text-gray-700 rounded-lg font-medium hover:bg-gray-100 transition-colors flex items-center gap-2"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-          বাতিল করুন
-        </button>
-        <button
-          onClick={handleSavePartialChanges}
-          disabled={isSaving || (filesToRemove.length === 0 && newFiles.length === 0)}
-          className={`px-6 py-2.5 rounded-lg font-medium text-white flex items-center gap-2 ${
-            isSaving 
-              ? 'bg-purple-400 cursor-not-allowed' 
-              : 'bg-purple-600 hover:bg-purple-700'
-          } shadow-md hover:shadow-lg transition-colors`}
-        >
-          {isSaving ? (
-            <>
-              <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              সংরক্ষণ হচ্ছে...
-            </>
-          ) : (
-            <>
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              {filesToRemove.length > 0 && newFiles.length > 0 
-                ? `মুছুন (${filesToRemove.length}) + যোগ করুন (${newFiles.length})`
-                : filesToRemove.length > 0 
-                  ? `মুছুন (${filesToRemove.length})`
-                  : `যোগ করুন (${newFiles.length})`
-              }
-            </>
-          )}
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-        {/* View Upload Modal (unchanged from previous version) */}
+        {/* VIEW UPLOAD MODAL - FIXED VERSION */}
         {viewingUpload && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-auto">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
@@ -1257,7 +1067,10 @@ const getFileUrls = (upload: any) => {
                   আপলোড প্রিভিউ: আবেদন #{viewingUpload.id}
                 </h3>
                 <button 
-                  onClick={() => setViewingUpload(null)}
+                  onClick={() => {
+                    clearImageBlobs();
+                    setViewingUpload(null);
+                  }}
                   className="text-gray-400 hover:text-gray-600 transition-colors"
                   title="বন্ধ করুন"
                 >
@@ -1273,48 +1086,37 @@ const getFileUrls = (upload: any) => {
                     <div className="text-6xl mb-4">📄</div>
                     <h4 className="text-xl font-bold text-gray-800 mb-2">PDF ফাইল</h4>
                     <p className="text-gray-600 mb-4">{viewingUpload.original_filename}</p>
-                    <button
-                      onClick={() => {
-                        const filename = extractFilename(viewingUpload.file_path);
-                        window.open(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/uploads/${filename}`, '_blank');
-                      }}
-                      className="bg-blue-600 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 01-3 3H1m8-9a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      PDF দেখুন
-                    </button>
+                    <p className="text-sm text-gray-500 mb-4">
+                      PDF ফাইলটি সরাসরি দেখা যাচ্ছে না। অনুগ্রহ করে সার্টিফিকেট যাচাই পেজ থেকে ডাউনলোড করুন।
+                    </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    // In your view modal, replace the image display:
-
-{getFileUrls(viewingUpload).map((file, index) => (
-  <div key={index} className="border rounded-lg overflow-hidden bg-gray-50 hover:shadow-lg transition-shadow">
-    <div className="aspect-square relative bg-gray-200">
-      {imageBlobs[file.name] ? (
-        <img 
-          src={imageBlobs[file.name]} 
-          alt={`Preview ${index + 1}`} 
-          className="w-full h-full object-contain p-2"
-        />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center bg-gray-100">
-          <div className="text-center p-4">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
-            <p className="text-gray-600 font-medium">লোড হচ্ছে...</p>
-          </div>
-        </div>
-      )}
-    </div>
-    <div className="p-3">
-      <p className="text-xs font-medium text-gray-800 truncate" title={file.name}>
-        {file.name.length > 20 ? file.name.substring(0, 17) + '...' : file.name}
-      </p>
-    </div>
-  </div>
-))}
+                    {getFileUrls(viewingUpload).map((file, index) => (
+                      <div key={index} className="border rounded-lg overflow-hidden bg-gray-50 hover:shadow-lg transition-shadow">
+                        <div className="aspect-square relative bg-gray-200">
+                          {imageBlobs[file.name] ? (
+                            <img 
+                              src={imageBlobs[file.name]} 
+                              alt={`Preview ${index + 1}`} 
+                              className="w-full h-full object-contain p-2"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                              <div className="text-center p-4">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
+                                <p className="text-gray-600 font-medium">লোড হচ্ছে...</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-3">
+                          <p className="text-xs font-medium text-gray-800 truncate" title={file.name}>
+                            {file.name.length > 20 ? file.name.substring(0, 17) + '...' : file.name}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1334,7 +1136,7 @@ const getFileUrls = (upload: any) => {
           </div>
         )}
 
-        {/* Contact Modal (unchanged) */}
+        {/* Contact Modal */}
         {showContactModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">

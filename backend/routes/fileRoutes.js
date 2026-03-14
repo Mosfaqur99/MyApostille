@@ -662,4 +662,136 @@ router.get('/verified/:filename', async (req, res) => {
   }
 });
 
+// PATCH endpoint for partial file updates (add/remove files)
+router.patch('/edit/:id', verifyToken, upload.array('files', 10), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { removeIndices } = req.body;
+    
+    // Get current upload
+    const uploadRes = await pool.query('SELECT * FROM uploads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    if (uploadRes.rows.length === 0) {
+      return res.status(404).json({ message: 'Upload not found' });
+    }
+    
+    const upload = uploadRes.rows[0];
+    if (upload.status !== 'pending') {
+      return res.status(400).json({ message: 'Cannot edit verified uploads' });
+    }
+
+    // Parse current file paths
+    let currentFilePaths = [];
+    if (upload.file_paths) {
+      try {
+        currentFilePaths = typeof upload.file_paths === 'string' 
+          ? JSON.parse(upload.file_paths) 
+          : upload.file_paths;
+      } catch (e) {
+        // If it's a single file stored as string path
+        currentFilePaths = [upload.file_paths];
+      }
+    } else if (upload.file_path) {
+      currentFilePaths = [upload.file_path];
+    }
+
+    // Parse remove indices
+    let indicesToRemove = [];
+    if (removeIndices) {
+      try {
+        indicesToRemove = JSON.parse(removeIndices);
+        if (!Array.isArray(indicesToRemove)) {
+          indicesToRemove = [indicesToRemove];
+        }
+      } catch (e) {
+        return res.status(400).json({ message: 'Invalid removeIndices format' });
+      }
+    }
+
+    // Sort indices in descending order to remove from end first (avoid index shifting issues)
+    indicesToRemove.sort((a, b) => b - a);
+
+    // Validate indices
+    const validIndices = indicesToRemove.filter(index => 
+      index >= 0 && index < currentFilePaths.length
+    );
+
+    // Remove files from storage and array
+    const removedFiles = [];
+    for (const index of validIndices) {
+      const filePath = currentFilePaths[index];
+      if (filePath) {
+        try {
+          const fullPath = path.join(__dirname, '..', 'uploads', path.basename(filePath));
+          if (fs.existsSync(fullPath)) {
+            fs.unlinkSync(fullPath);
+            removedFiles.push(filePath);
+          }
+        } catch (err) {
+          console.error('Error deleting file:', err);
+        }
+      }
+    }
+
+    // Remove from array (descending order prevents index issues)
+    for (const index of validIndices) {
+      currentFilePaths.splice(index, 1);
+    }
+
+    // Add new files
+    const newFiles = req.files || [];
+    const newFilePaths = newFiles.map(file => `/uploads/${file.filename}`);
+    
+    // Combine remaining files with new files
+    const updatedFilePaths = [...currentFilePaths, ...newFilePaths];
+
+    // Determine file type
+    let fileType = upload.file_type;
+    if (updatedFilePaths.length === 0) {
+      fileType = null;
+    } else if (updatedFilePaths.length === 1) {
+      const ext = path.extname(updatedFilePaths[0]).toLowerCase();
+      fileType = ext === '.pdf' ? 'pdf' : 'image';
+    } else {
+      fileType = 'multi-image';
+    }
+
+    // Update database
+    const updateQuery = `
+      UPDATE uploads 
+      SET file_paths = $1, 
+          file_type = $2,
+          file_path = $3,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $4 AND user_id = $5
+      RETURNING *
+    `;
+
+    // Store as JSON array if multiple files, or single path if one file
+    const filePathsValue = updatedFilePaths.length > 1 
+      ? JSON.stringify(updatedFilePaths) 
+      : updatedFilePaths[0] || null;
+    
+    const filePathValue = updatedFilePaths.length > 0 ? updatedFilePaths[0] : null;
+
+    const result = await pool.query(updateQuery, [
+      filePathsValue,
+      fileType,
+      filePathValue,
+      id,
+      req.user.id
+    ]);
+
+    res.json({
+      message: 'Files updated successfully',
+      upload: result.rows[0],
+      removedCount: validIndices.length,
+      addedCount: newFiles.length
+    });
+
+  } catch (error) {
+    console.error('Error in partial update:', error);
+    res.status(500).json({ message: 'Server error during file update' });
+  }
+});
+
 module.exports = router;

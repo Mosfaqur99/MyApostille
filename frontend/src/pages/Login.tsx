@@ -81,7 +81,7 @@ const Login = () => {
             <a href="/register" className="text-green-600 hover:underline">নতুন আবেদন</a>
           </p>
           <p className="text-gray-600 mt-2">
-            <a href="#" className="text-green-600 hover:underline">পাসওয়ার্ড ভুলে গেছেন?</a>
+            <a href="/forgot-password" className="text-green-600 hover:underline">পাসওয়ার্ড ভুলে গেছেন?</a>
           </p>
         </div>
       </div>
