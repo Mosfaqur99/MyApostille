@@ -20,43 +20,60 @@ const VerificationPage = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const verifyCertificate = async () => {
-      try {
-        setLoading(true);
+    // frontend/src/pages/VerificationPage.tsx
 
-        const response = await api.get(`/files/verify/${certificateNumber}`);
+// Inside VerificationPage.tsx
+const verifyCertificate = async () => {
+  try {
+    setLoading(true);
+    const response = await api.get(`/files/verify/${certificateNumber}`);
+    setVerificationData(response.data);
 
-        if (!isMounted) return;
+    // 1. Process Certificate URL
+    if (response.data.certificate_path) {
+      const certPath = response.data.certificate_path.replace(/\\/g, '/');
+      setCertificateUrl(`https://bangladesh-apostille-api.onrender.com/${certPath}`);
+    }
 
-        setVerificationData(response.data);
+    // 2. Process Verified Documents (The Fix)
+    if (response.data.upload && response.data.upload.verified_paths) {
+      let vPaths = response.data.upload.verified_paths;
 
-        const baseURL = "https://bangladesh-apostille-api.onrender.com";
-
-        const buildUrl = (path: string) => {
-          if (!path) return null;
-          if (path.startsWith("http")) return path;
-          return `${baseURL}/${path.replace(/^\/+/, "")}`;
-        };
-
-        
-
-        if (response.data.certificatePath) {
-          setCertificateUrl(buildUrl(response.data.certificatePath));
+      // Handle cases where DB returns a JSON string
+      if (typeof vPaths === 'string' && vPaths.startsWith('[')) {
+        try {
+          vPaths = JSON.parse(vPaths);
+        } catch (e) {
+          vPaths = [vPaths];
         }
-
-        if (response.data.reuploadedFiles) {
-          const files = response.data.reuploadedFiles.map((f: string) =>
-            buildUrl(f)
-          );
-          setProcessedFiles(files.filter(Boolean));
-        }
-
-        setLoading(false);
-      } catch (err: any) {
-        setError(err.response?.data?.message || "সার্টিফিকেট পাওয়া যায়নি");
-        setLoading(false);
+      } else if (!Array.isArray(vPaths)) {
+        vPaths = [vPaths];
       }
-    };
+
+      const baseURL = "https://bangladesh-apostille-api.onrender.com";
+
+      const urls = vPaths.map((entry: any) => {
+        // EXTRACTION FIX: Get .path if it's an object, otherwise use as string
+        const pathStr = (entry && typeof entry === 'object') ? entry.path : entry;
+        
+        if (!pathStr || typeof pathStr !== 'string') return null;
+
+        // Clean path: change \ to / and remove starting slash
+        const cleanPath = pathStr.replace(/\\/g, '/').replace(/^\/+/, '');
+        
+        return `${baseURL}/${cleanPath}`;
+      }).filter(Boolean) as string[];
+
+      setProcessedFiles(urls);
+    }
+    
+    setLoading(false);
+  } catch (err: any) {
+    console.error("Verification failed", err);
+    setError(err.response?.data?.message || "যাচাইকরণ ব্যর্থ হয়েছে");
+    setLoading(false);
+  }
+};
 
     verifyCertificate();
     return () => {
