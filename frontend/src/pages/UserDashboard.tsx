@@ -7,7 +7,6 @@ import Header from '../components/Header';
 import Footer from '../components/Footer';
 import { toast } from 'react-toastify';
 import { gsap } from 'gsap';
-import { extractFilename } from '../Utils/FileUtils';
 import api from '../api';
 
 const UserDashboard = () => {
@@ -26,9 +25,6 @@ const UserDashboard = () => {
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceFileInputRef = useRef<HTMLInputElement>(null);
-  
-  // State for image blobs (for viewing with auth)
-  const [imageBlobs, setImageBlobs] = useState<{[key: string]: string}>({});
   
   // Edit modal states
   const [currentFiles, setCurrentFiles] = useState<any[]>([]);
@@ -49,14 +45,13 @@ const UserDashboard = () => {
   useEffect(() => {
     return () => {
       previewUrls.forEach(url => URL.revokeObjectURL(url));
-      clearImageBlobs();
     };
   }, [previewUrls]);
 
   // Initialize current files when edit modal opens
   useEffect(() => {
     if (editingUpload) {
-      // Initialize current files from editingUpload
+      // Initialize current files from editingUpload using Cloudinary URLs directly
       const files = getFileUrls(editingUpload).map((file, index) => ({
         url: file.url,
         name: file.name,
@@ -69,20 +64,12 @@ const UserDashboard = () => {
       setNewFiles([]);
       setNewFilePreviews([]);
       setFilesToRemove([]);
-      
-      // Load images with auth for edit modal
-      files.forEach(file => {
-        if (file.type.includes('image') || file.name.match(/\.(jpg|jpeg|png)$/i)) {
-          fetchImageWithAuth(file.url, file.name);
-        }
-      });
     }
   }, [editingUpload]);
 
   // Cleanup when edit modal closes
   useEffect(() => {
     if (!editingUpload) {
-      clearImageBlobs();
       setCurrentFiles([]);
       setNewFiles([]);
       setNewFilePreviews([]);
@@ -99,33 +86,6 @@ const UserDashboard = () => {
       console.error('Error fetching uploads:', err);
       setLoading(false);
     }
-  };
-
-  // Function to fetch images with auth token
-  const fetchImageWithAuth = async (fileUrl: string, filename: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      // fileUrl is already the API endpoint like /api/files/uploads/filename.jpg
-      // Use the api instance which has baseURL configured
-      const response = await api.get(fileUrl, {
-        headers: { 'x-auth-token': token },
-        responseType: 'blob'
-      });
-      
-      const blobUrl = URL.createObjectURL(response.data);
-      setImageBlobs(prev => ({ ...prev, [filename]: blobUrl }));
-      return blobUrl;
-    } catch (error) {
-      console.error('Failed to load image:', error);
-      return null;
-    }
-  };
-
-  // Cleanup function
-  const clearImageBlobs = () => {
-    Object.values(imageBlobs).forEach(url => URL.revokeObjectURL(url));
-    setImageBlobs({});
   };
 
   const handleLogout = () => {
@@ -376,22 +336,12 @@ const UserDashboard = () => {
     }
   };
 
-  // Handle view upload - FIXED VERSION
+  // Handle view upload - SIMPLIFIED for Cloudinary
   const handleViewUpload = (upload: any) => {
-    // Clear previous blobs
-    clearImageBlobs();
     setViewingUpload(upload);
-    
-    // Load images with auth for view modal
-    const files = getFileUrls(upload);
-    files.forEach(file => {
-      if (file.name.match(/\.(jpg|jpeg|png)$/i)) {
-        fetchImageWithAuth(file.url, file.name);
-      }
-    });
   };
 
-  // Get file URLs - FIXED to return API endpoints
+  // SIMPLIFIED getFileUrls - Cloudinary URLs are direct
   const getFileUrls = (upload: any) => {
     if (!upload) return [];
     
@@ -404,19 +354,13 @@ const UserDashboard = () => {
     }
     
     return files.map((file, index) => {
-      let filename = '';
-      if (typeof file === 'string') {
-        filename = file.replace(/^.*[\\\/]/, '');
-      } else if (file.path) {
-        filename = file.path.replace(/^.*[\\\/]/, '');
-      }
-      
-      filename = filename.split('?')[0];
+      // Cloudinary URLs are already full URLs - use them directly
+      const url = typeof file === 'object' ? file.path : file;
+      const name = file.original_name || file.name || `File ${index + 1}`;
       
       return {
-        // Return API endpoint that requires auth (matches your backend route)
-        url: `/files/uploads/${encodeURIComponent(filename)}`,
-        name: file.original_name || file.name || filename || `File ${index + 1}`
+        url: url,  // Direct Cloudinary URL
+        name: name
       };
     });
   };
@@ -798,7 +742,7 @@ const UserDashboard = () => {
           </div>
         )}
 
-        {/* EDIT UPLOAD MODAL - FIXED VERSION */}
+        {/* EDIT UPLOAD MODAL - CLOUDINARY VERSION */}
         {editingUpload && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-auto">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
@@ -849,21 +793,22 @@ const UserDashboard = () => {
                           filesToRemove.includes(index) ? 'opacity-50 border-red-300' : ''
                         }`}>
                           <div className="aspect-square relative bg-gray-200">
-                            {imageBlobs[file.name] ? (
-                              <img 
-                                src={imageBlobs[file.name]} 
-                                alt={`Current ${index + 1}`} 
-                                className="w-full h-full object-contain p-2"
-                              />
-                            ) : file.name.match(/\.pdf$/i) ? (
+                            {/* CLOUDINARY: Use direct URL instead of blob */}
+                            {file.name.match(/\.pdf$/i) ? (
                               <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100 p-2">
                                 <div className="text-4xl mb-2">📄</div>
                                 <p className="text-xs text-gray-600 text-center">PDF ফাইল</p>
                               </div>
                             ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
-                              </div>
+                              <img 
+                                src={file.url}  // Direct Cloudinary URL
+                                alt={`Current ${index + 1}`} 
+                                className="w-full h-full object-contain p-2"
+                                onError={(e) => {
+                                  // Fallback if image fails to load
+                                  (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"%3E%3Cpath stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /%3E%3C/svg%3E';
+                                }}
+                              />
                             )}
                             
                             {/* Toggle removal button */}
@@ -1055,7 +1000,7 @@ const UserDashboard = () => {
           </div>
         )}
 
-        {/* VIEW UPLOAD MODAL - FIXED VERSION */}
+        {/* VIEW UPLOAD MODAL - CLOUDINARY VERSION */}
         {viewingUpload && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-auto">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
@@ -1068,7 +1013,6 @@ const UserDashboard = () => {
                 </h3>
                 <button 
                   onClick={() => {
-                    clearImageBlobs();
                     setViewingUpload(null);
                   }}
                   className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -1095,20 +1039,16 @@ const UserDashboard = () => {
                     {getFileUrls(viewingUpload).map((file, index) => (
                       <div key={index} className="border rounded-lg overflow-hidden bg-gray-50 hover:shadow-lg transition-shadow">
                         <div className="aspect-square relative bg-gray-200">
-                          {imageBlobs[file.name] ? (
-                            <img 
-                              src={imageBlobs[file.name]} 
-                              alt={`Preview ${index + 1}`} 
-                              className="w-full h-full object-contain p-2"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                              <div className="text-center p-4">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
-                                <p className="text-gray-600 font-medium">লোড হচ্ছে...</p>
-                              </div>
-                            </div>
-                          )}
+                          {/* CLOUDINARY: Use direct URL instead of blob */}
+                          <img 
+                            src={file.url}  // Direct Cloudinary URL
+                            alt={`Preview ${index + 1}`} 
+                            className="w-full h-full object-contain p-2"
+                            onError={(e) => {
+                              // Fallback if image fails to load
+                              (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"%3E%3Cpath stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /%3E%3C/svg%3E';
+                            }}
+                          />
                         </div>
                         <div className="p-3">
                           <p className="text-xs font-medium text-gray-800 truncate" title={file.name}>
@@ -1124,7 +1064,6 @@ const UserDashboard = () => {
               <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end">
                 <button
                   onClick={() => {
-                    clearImageBlobs();
                     setViewingUpload(null);
                   }}
                   className="px-5 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
@@ -1161,7 +1100,7 @@ const UserDashboard = () => {
                 <div className="space-y-4 mt-4">
                   <div className="flex items-start gap-3 p-3 bg-green-50 rounded-lg">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 012-2h-1c-1.284 0-8-6.716-8-8V5z" />
                     </svg>
                     <div>
                       <p className="font-medium text-gray-800">হেল্পলাইন নম্বর</p>

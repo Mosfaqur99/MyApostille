@@ -26,21 +26,15 @@ const VerificationPage = () => {
       if (!isMounted) return;
       setVerificationData(response.data);
 
-      const baseURL = "https://bangladesh-apostille-api.onrender.com".trim();
-
-      // Handle certificate URL
-      if (response.data.certificateFilename) {
-        setCertificateUrl(`${baseURL}/${response.data.certificateFilename}`);
+      // Cloudinary URLs are already full URLs - no construction needed
+      if (response.data.certificatePath) {
+        setCertificateUrl(response.data.certificatePath);  // Direct Cloudinary URL
       }
 
-      // Handle reuploaded files
       if (response.data.reuploadedFiles?.length > 0) {
-        const urls = response.data.reuploadedFiles.map((filepath: string) => 
-  `${baseURL}/api/files/${filepath}` // Results in /api/files/verified/filename.pdf
-);
-        setProcessedFiles(urls);
+        // These are already full Cloudinary URLs
+        setProcessedFiles(response.data.reuploadedFiles);
       } else {
-        console.warn('⚠️ No reuploadedFiles in response:', response.data);
         setProcessedFiles([]);
       }
 

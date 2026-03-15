@@ -224,54 +224,41 @@ api.get('/files/completed')
     }
   };
 
-  // Add this function in AdminDashboard component (after handleDeleteUpload)
-// REPLACE downloadUserDocument function:
-
-// In AdminDashboard.tsx, REPLACE the entire downloadUserDocument function:
-
-// REPLACE downloadUserDocument in AdminDashboard.tsx:
-
-const downloadUserDocuments = async (uploadId: number, filename: string) => {
+// NEW - Cloudinary download (USE THIS)
+const handleDownload = async (uploadId: number, type = 'all') => {
   try {
     const token = localStorage.getItem('token');
-    
-    // Change: Now we call the specific download-originals endpoint by ID
-    const response = await api.get(
-      `/files/download-originals/${uploadId}`,
+    const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://your-api.onrender.com';
+    if (!token) {
+  console.error("No authentication token found");
+  return;
+}
+    const response = await fetch(
+      `${API_BASE_URL}/api/files/download/${uploadId}?type=${type}`,
       {
-        headers: { 'x-auth-token': token },
-        responseType: 'blob' // Essential for receiving binary files (PDF/ZIP)
+        headers: { 'x-auth-token': token }
       }
     );
-
-    // 1. Get the content type from the header to decide the file extension
-    const contentType = response.headers['content-type'];
-    let extension = '.pdf'; // default
-    if (contentType === 'application/zip') {
-      extension = '.zip';
-    }
-
-    // 2. Create the blob and trigger download
-    const blob = new Blob([response.data]);
+    
+    if (!response.ok) throw new Error('Download failed');
+    
+    const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    
-    // Set filename (e.g., Document_123.pdf or Document_123.zip)
-    const finalFileName = filename ? `${filename}${extension}` : `documents_${uploadId}${extension}`;
-    link.setAttribute('download', finalFileName);
-    
+    link.download = `apostille-${uploadId}-${type}.zip`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
     
-    toast.success('Download started');
-  } catch (error: any) {
-    console.error('Download failed', error);
-    toast.error('Could not download file(s)');
+    toast.success('ডাউনলোড শুরু হয়েছে!');
+  } catch (error) {
+    console.error('Download failed:', error);
+    toast.error('ডাউনলোড ব্যর্থ হয়েছে');
   }
 };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -364,27 +351,21 @@ const downloadUserDocuments = async (uploadId: number, filename: string) => {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
+                            {/* Verify Button */}
                             <button
-  onClick={() => downloadUserDocuments(upload.id, upload.original_filename || `Document_${upload.id}`)}
-  className="inline-flex items-center px-3 py-1 border border-blue-600 text-blue-700 text-xs font-medium rounded-full bg-blue-50 hover:bg-blue-100 transition-colors"
-  title="Download Original Document(s)"
->
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-  </svg>
-  ডাউনলোড
-</button>
-           <button
                               onClick={() => handleVerifyClick(upload)}
                               className="px-3 py-1 border border-green-600 text-green-700 text-xs font-medium rounded-full bg-green-50 hover:bg-green-100 transition-colors"
                             >
                               যাচাই করুন
                             </button>
+                            
+                            {/* Delete Button for Pending */}
                             <button
                               onClick={() => handleDeleteUpload(upload.id)}
-                              className="px-3 py-1 border border-red-600 text-red-700 text-xs font-medium rounded-full bg-red-50 hover:bg-red-100 transition-colors flex items-center gap-1"
+                              className="inline-flex items-center px-3 py-1 border border-red-600 text-red-700 text-xs font-medium rounded-full bg-red-50 hover:bg-red-100 transition-colors"
+                              title="আবেদন মুছুন"
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                               </svg>
                               মুছুন
@@ -419,7 +400,7 @@ const downloadUserDocuments = async (uploadId: number, filename: string) => {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">সার্টিফিকেট নম্বর</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">অনুমোদনকারী</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">তারিখ</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ডাউনলোড</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">কার্যক্রম</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -446,32 +427,70 @@ const downloadUserDocuments = async (uploadId: number, filename: string) => {
                           {new Date(upload.verified_at).toLocaleDateString('bn-BD')}
                         </td>
                         <td className="px-4 py-3">
-  <div className="flex items-center gap-2">
-    {/* View/Verify Button */}
-    <button
-      onClick={() => navigate(`/verify/${upload.certificate_number}`)}
-      className="inline-flex items-center px-3 py-1 border border-green-600 text-green-700 text-xs font-medium rounded-full bg-green-50 hover:bg-green-100 transition-colors"
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-      </svg>
-      দেখুন ও যাচাই
-    </button>
-    
-    {/* NEW: Delete Button for Verified Applications */}
-    <button
-      onClick={() => handleDeleteVerifiedUpload(upload.id)}
-      className="inline-flex items-center px-3 py-1 border border-red-600 text-red-700 text-xs font-medium rounded-full bg-red-50 hover:bg-red-100 transition-colors"
-      title="যাচাইকৃত আবেদন মুছুন"
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-      </svg>
-      মুছুন
-    </button>
-  </div>
-</td>
+                          <div className="flex items-center gap-2">
+                            {/* View/Verify Button */}
+                            <button
+                              onClick={() => navigate(`/verify/${upload.certificate_number}`)}
+                              className="inline-flex items-center px-3 py-1 border border-green-600 text-green-700 text-xs font-medium rounded-full bg-green-50 hover:bg-green-100 transition-colors"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              </svg>
+                              দেখুন ও যাচাই
+                            </button>
+                            
+                            {/* Download Dropdown - ONLY FOR COMPLETED */}
+                            <div className="relative group">
+                              <button className="inline-flex items-center px-3 py-1 border border-blue-600 text-blue-700 text-xs font-medium rounded-full bg-blue-50 hover:bg-blue-100 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                ডাউনলোড
+                              </button>
+                              
+                              {/* Dropdown Menu */}
+                              <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 hidden group-hover:block z-10">
+                                <button
+                                  onClick={() => handleDownload(upload.id, 'all')}
+                                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 first:rounded-t-lg"
+                                >
+                                  📦 সব ফাইল
+                                </button>
+                                <button
+                                  onClick={() => handleDownload(upload.id, 'certificate')}
+                                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                >
+                                  📜 সার্টিফিকেট
+                                </button>
+                                <button
+                                  onClick={() => handleDownload(upload.id, 'verified')}
+                                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                >
+                                  ✅ যাচাইকৃত নথি
+                                </button>
+                                <button
+                                  onClick={() => handleDownload(upload.id, 'originals')}
+                                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 last:rounded-b-lg"
+                                >
+                                  📁 মূল নথি
+                                </button>
+                              </div>
+                            </div>
+                            
+                            {/* Delete Button for Verified */}
+                            <button
+                              onClick={() => handleDeleteVerifiedUpload(upload.id)}
+                              className="inline-flex items-center px-3 py-1 border border-red-600 text-red-700 text-xs font-medium rounded-full bg-red-50 hover:bg-red-100 transition-colors"
+                              title="যাচাইকৃত আবেদন মুছুন"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              মুছুন
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -612,29 +631,27 @@ const downloadUserDocuments = async (uploadId: number, filename: string) => {
                     />
                   </div>
 
-                  // In the Verification Modal, replace the Field 7 select options:
-
-{/* Field 7 */}
-<div>
-  <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-    <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded">7</span>
-    by [name], [designation] *
-  </label>
-  <select
-    value={certificateData.authorityName}
-    onChange={(e) => setCertificateData({...certificateData, authorityName: e.target.value})}
-    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-  >
-    <option value="MD. ASIF KHAN PRANTO">MD. ASIF KHAN PRANTO (Assistant Secretary)</option>
-    <option value="AKLIMA KHANOM">AKLIMA KHANOM (Senior Assistant Secretary)</option>
-  </select>
-  <p className="text-xs text-gray-500 mt-1">
-    Designation will appear as: 
-    {certificateData.authorityName === 'AKLIMA KHANOM' 
-      ? 'Senior Assistant Secretary, Ministry of Foreign Affairs' 
-      : 'Assistant Secretary, Ministry of Foreign Affairs'}
-  </p>
-</div>
+                  {/* Field 7 */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                      <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded">7</span>
+                      by [name], [designation] *
+                    </label>
+                    <select
+                      value={certificateData.authorityName}
+                      onChange={(e) => setCertificateData({...certificateData, authorityName: e.target.value})}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    >
+                      <option value="MD. ASIF KHAN PRANTO">MD. ASIF KHAN PRANTO (Assistant Secretary)</option>
+                      <option value="AKLIMA KHANOM">AKLIMA KHANOM (Senior Assistant Secretary)</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Designation will appear as: 
+                      {certificateData.authorityName === 'AKLIMA KHANOM' 
+                        ? 'Senior Assistant Secretary, Ministry of Foreign Affairs' 
+                        : 'Assistant Secretary, Ministry of Foreign Affairs'}
+                    </p>
+                  </div>
 
                   {/* Field 8: Re-upload Documents */}
                   <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">

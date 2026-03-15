@@ -4,6 +4,28 @@ const fontkit = require('@pdf-lib/fontkit');
 const fs = require('fs').promises;
 const path = require('path');
 
+const { cloudinary } = require('../config/cloudinary');
+const streamifier = require('streamifier');
+
+async function uploadCertificateToCloudinary(pdfBuffer, certNumber) {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'apostille/certificates',
+        public_id: `certificate-${certNumber}`,
+        resource_type: 'raw',  // For PDFs
+        format: 'pdf'
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      }
+    );
+    
+    streamifier.createReadStream(pdfBuffer).pipe(uploadStream);
+  });
+}
+
 function safeText(text) {
   if (text === undefined || text === null) return 'N/A';
   return text.toString().trim() || 'N/A';

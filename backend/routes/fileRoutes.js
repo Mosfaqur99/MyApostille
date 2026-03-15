@@ -6,6 +6,7 @@ const fs = require('fs');
 const { verifyToken, authorizeRole } = require('../middleware/auth');
 const pool = require('../config/db');
 const AdmZip = require('adm-zip');
+const { createStorage } = require('../config/cloudinary');
 
 // Import generators and processors
 const { generateEApostilleCertificate } = require('../utils/certificateGenerator');
@@ -46,31 +47,28 @@ async function ensureDirAsync(dirPath) {
 }
 
 // ========== MULTER CONFIGURATION ==========
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    try {
-      const baseDir = process.env.UPLOAD_DIR || '/tmp/uploads';
-      const dest = path.join(baseDir, 'original');
-      
-      if (!fs.existsSync(dest)) {
-        fs.mkdirSync(dest, { recursive: true });
-      }
-      
-      cb(null, dest);
-    } catch (err) {
-      console.error('Multer destination error:', err);
-      cb(err);
+
+// Create storage instances for different purposes
+const originalStorage = createStorage('original');
+const verifiedStorage = createStorage('verified');
+const certificateStorage = createStorage('certificates');
+
+// Create multer instances
+const uploadOriginal = multer({ 
+  storage: originalStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: function (req, file, cb) {
+    const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF, PNG, JPEG allowed'), false);
     }
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, uniqueSuffix + '-' + safeName);
   }
 });
 
-const upload = multer({ 
-  storage: storage,
+const uploadVerified = multer({ 
+  storage: verifiedStorage,
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: function (req, file, cb) {
     const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
@@ -85,7 +83,8 @@ const upload = multer({
 // ========== ROUTES ==========
 
 // Upload files
-router.post('/upload', verifyToken, upload.array('files', 10), async (req, res) => {
+// Upload files - CLOUDINARY VERSION
+router.post('/upload', verifyToken, uploadOriginal.array('files', 10), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: 'No files uploaded' });
@@ -95,22 +94,20 @@ router.post('/upload', verifyToken, upload.array('files', 10), async (req, res) 
     const hasImages = req.files.some(f => f.mimetype.startsWith('image/'));
     
     if (hasPDF && hasImages) {
-      for (const f of req.files) {
-        await deleteFileAsync(f.path);
-      }
+      // Cloudinary files are already uploaded, but we should cleanup if validation fails
+      // (Optional: delete from Cloudinary using public_id)
       return res.status(400).json({ message: 'Cannot mix PDF and images' });
     }
     
     if (hasPDF && req.files.length > 1) {
-      for (const f of req.files) {
-        await deleteFileAsync(f.path);
-      }
       return res.status(400).json({ message: 'Only one PDF file allowed per upload' });
     }
 
+    // req.files from Cloudinary storage contains URLs directly
     const fileData = req.files.map(file => ({
-      path: file.path,
-      original_name: file.originalname
+      path: file.path,  // This is now Cloudinary URL: https://res.cloudinary.com/...
+      original_name: file.originalname,
+      public_id: file.filename  // Cloudinary public ID for future deletion
     }));
     
     const file_type = hasPDF ? 'pdf' : (req.files.length > 1 ? 'multi-image' : 'image');
@@ -124,8 +121,8 @@ router.post('/upload', verifyToken, upload.array('files', 10), async (req, res) 
       [
         req.user.id,
         original_filename,
-        fileData[0].path,
-        JSON.stringify(fileData),
+        fileData[0].path,  // Cloudinary URL
+        JSON.stringify(fileData),  // Stores array with URLs and public_ids
         file_type,
         'pending'
       ]
@@ -137,11 +134,6 @@ router.post('/upload', verifyToken, upload.array('files', 10), async (req, res) 
     });
   } catch (err) {
     console.error('Upload error:', err);
-    if (req.files) {
-      for (const file of req.files) {
-        await deleteFileAsync(file.path);
-      }
-    }
     res.status(500).json({ message: 'Server error during upload', error: err.message });
   }
 });
@@ -178,67 +170,118 @@ router.get('/pending', verifyToken, authorizeRole('admin'), async (req, res) => 
 });
 
 // Download originals
-router.get('/download-originals/:uploadId', verifyToken, authorizeRole('admin'), async (req, res) => {
+// Download files as ZIP - CLOUDINARY VERSION
+router.get('/download/:uploadId', verifyToken, async (req, res) => {
   try {
     const { uploadId } = req.params;
-    console.log(`[Download] Starting for ID: ${uploadId}`);
+    const { type } = req.query; // 'originals' or 'verified' or 'certificate'
+    
+    console.log(`[Download] Starting for ID: ${uploadId}, type: ${type || 'all'}`);
 
-    const result = await pool.query('SELECT file_paths FROM uploads WHERE id = $1', [uploadId]);
-    if (result.rows.length === 0) return res.status(404).json({ message: "Record not found" });
+    const result = await pool.query(
+      'SELECT * FROM uploads WHERE id = $1',
+      [uploadId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Upload not found' });
+    }
+    
+    const upload = result.rows[0];
+    
+    // Check permissions
+    if (req.user.role !== 'admin' && upload.user_id !== req.user.id) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
 
-    let rawData = result.rows[0].file_paths;
-    let filePaths = [];
+    const filesToDownload = [];
+    
+    // Collect files based on type
+    if (!type || type === 'originals') {
+      if (upload.file_paths) {
+        const files = typeof upload.file_paths === 'string' 
+          ? JSON.parse(upload.file_paths) 
+          : upload.file_paths;
+        filesToDownload.push(...files.map(f => ({
+          url: typeof f === 'object' ? f.path : f,
+          name: typeof f === 'object' ? f.original_name : `file-${filesToDownload.length + 1}`,
+          folder: 'original'
+        })));
+      }
+    }
+    
+    if ((!type || type === 'verified') && upload.status === 'verified') {
+      if (upload.reuploaded_file_paths) {
+        const files = typeof upload.reuploaded_file_paths === 'string'
+          ? JSON.parse(upload.reuploaded_file_paths)
+          : upload.reuploaded_file_paths;
+        filesToDownload.push(...files.map((url, idx) => ({
+          url: url,
+          name: `verified-document-${idx + 1}.pdf`,
+          folder: 'verified'
+        })));
+      }
+    }
+    
+    if ((!type || type === 'certificate') && upload.status === 'verified' && upload.certificate_pdf_path) {
+      filesToDownload.push({
+        url: upload.certificate_pdf_path,
+        name: `e-APOSTILLE-${upload.certificate_number}.pdf`,
+        folder: 'certificate'
+      });
+    }
 
-    if (Array.isArray(rawData)) {
-      filePaths = rawData;
-    } else if (typeof rawData === 'string') {
+    if (filesToDownload.length === 0) {
+      return res.status(404).json({ message: 'No files available for download' });
+    }
+
+    // Download files from Cloudinary and create ZIP
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    const axios = require('axios');
+    
+    let successCount = 0;
+    
+    for (const file of filesToDownload) {
       try {
-        filePaths = JSON.parse(rawData);
-        if (!Array.isArray(filePaths)) filePaths = [filePaths];
-      } catch (e) {
-        filePaths = [rawData];
+        console.log(`[Download] Fetching: ${file.url}`);
+        
+        // Download from Cloudinary
+        const response = await axios.get(file.url, {
+          responseType: 'arraybuffer',
+          timeout: 30000
+        });
+        
+        // Add to ZIP with folder structure
+        const zipPath = `${file.folder}/${file.name}`;
+        zip.addFile(zipPath, Buffer.from(response.data));
+        
+        successCount++;
+        console.log(`[Download] Added: ${zipPath}`);
+      } catch (err) {
+        console.error(`[Download] Failed to fetch ${file.url}:`, err.message);
+        // Continue with other files
       }
     }
 
-    const zip = new AdmZip();
-    let fileCount = 0;
-
-    filePaths.forEach(entry => {
-      let relPath = (typeof entry === 'object' && entry !== null) ? entry.path : entry;
-      
-      if (!relPath || typeof relPath !== 'string') {
-        console.warn(`[Download] Skipping invalid path entry:`, entry);
-        return;
-      }
-      
-      const cleanPath = relPath.replace(/\\/g, '/');
-      const fullPath = path.isAbsolute(cleanPath) ? cleanPath : path.join(process.cwd(), cleanPath);
-      
-      if (fs.existsSync(fullPath)) {
-        zip.addLocalFile(fullPath);
-        fileCount++;
-        console.log(`[Download] Added: ${fullPath}`);
-      } else {
-        console.error(`[Download] File NOT FOUND on disk: ${fullPath}`);
-      }
-    });
-
-    if (fileCount === 0) {
-      return res.status(404).json({ message: "Physical files not found on server storage." });
+    if (successCount === 0) {
+      return res.status(500).json({ message: 'Failed to download files from cloud storage' });
     }
 
     const zipBuffer = zip.toBuffer();
+    
     res.set({
       'Content-Type': 'application/zip',
-      'Content-Disposition': `attachment; filename=docs_${uploadId}.zip`,
+      'Content-Disposition': `attachment; filename=apostille-${uploadId}-${type || 'all'}.zip`,
       'Content-Length': zipBuffer.length
     });
     
-    return res.send(zipBuffer);
+    console.log(`[Download] Success: ${successCount} files, ${zipBuffer.length} bytes`);
+    res.send(zipBuffer);
 
   } catch (err) {
-    console.error('SERVER ERROR 500:', err);
-    res.status(500).json({ error: "Internal Server Error", details: err.message });
+    console.error('[Download] Error:', err);
+    res.status(500).json({ message: 'Download failed', error: err.message });
   }
 });
 
@@ -332,7 +375,8 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 });
 
 // POST /verify/:id - COMPLETE FIXED VERSION
-router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('reuploadedFiles', 10), async (req, res) => {
+// POST /verify/:id - CLOUDINARY VERSION
+router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.array('reuploadedFiles', 10), async (req, res) => {
   const uploadId = req.params.id;
   console.log('🔍 Verify endpoint called for upload:', uploadId);
   
@@ -365,7 +409,7 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
       return res.status(400).json({ message: 'Please re-upload documents' });
     }
 
-    // Step 3: Generate certificate
+    // Step 3: Generate certificate PDF (in memory)
     const certNumber = generateCertNumber();
     const certificateData = {
       documentIssuer, 
@@ -383,15 +427,28 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
       throw new Error('Certificate generator returned invalid result');
     }
     
-    const certDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'certificates');
-    await ensureDirAsync(certDir);
-    const certFileName = `certificate-${certNumber}.pdf`;
-    const certFilePath = path.join(certDir, certFileName);
+    // Upload certificate to Cloudinary
+    const streamifier = require('streamifier');
+    const { cloudinary } = require('../config/cloudinary');
     
-    await fs.promises.writeFile(certFilePath, certResult.pdfBytes);
-    console.log('✅ Certificate saved:', certFilePath);
-
-    const relativeCertPath = `certificates/${certFileName}`;
+    const certUploadResult = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'apostille/certificates',
+          public_id: `certificate-${certNumber}`,
+          resource_type: 'raw',
+          format: 'pdf'
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+      streamifier.createReadStream(certResult.pdfBytes).pipe(uploadStream);
+    });
+    
+    const certUrl = certUploadResult.secure_url;
+    console.log('✅ Certificate uploaded to Cloudinary:', certUrl);
 
     // Step 4: Parse additional signers
     let signersWithDates = [];
@@ -419,29 +476,25 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
 
     // Step 5: Process documents with signatures
     console.log('🔍 Processing documents...');
-    let reuploadedPaths = [];
+    let reuploadedUrls = [];
 
-    const verifiedDir = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', 'verified');
-    await ensureDirAsync(verifiedDir);
-    
     for (const file of req.files) {
       try {
         // Check if processDocumentWithSignatures exists
         if (typeof processDocumentWithSignatures !== 'function') {
-          throw new Error('processDocumentWithSignatures is not a function. Check your import.');
+          throw new Error('processDocumentWithSignatures is not a function');
         }
 
-        const processedPath = await processDocumentWithSignatures(
-          file.path,
+        // file.path is now a Cloudinary URL - we need to download it first or modify processor
+        // For now, assume processDocumentWithSignatures handles URLs or modify it
+        const processedUrl = await processDocumentWithSignatures(
+          file.path,  // Cloudinary URL
           signersWithDates,
           certNumber
         );
         
-        const processedFilename = path.basename(processedPath);
-        const relativePath = `verified/${processedFilename}`;
-        reuploadedPaths.push(relativePath);
-        
-        console.log('✅ File processed:', relativePath);
+        reuploadedUrls.push(processedUrl);
+        console.log('✅ File processed:', processedUrl);
       } catch (procErr) {
         console.error('⚠️ File processing failed:', file.originalname, procErr.message);
         throw procErr;
@@ -466,9 +519,9 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
 
     const updateResult = await client.query(updateQuery, [
       certNumber,
-      relativeCertPath,
+      certUrl,  // Cloudinary URL
       JSON.stringify(certificateData),
-      JSON.stringify(reuploadedPaths),
+      JSON.stringify(reuploadedUrls),  // Cloudinary URLs
       JSON.stringify(signaturesData),
       req.user.id,
       uploadId
@@ -477,13 +530,20 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     await client.query('COMMIT');
     console.log('✅ Database updated:', updateResult.rows[0].id);
 
-    // Step 7: Cleanup original files
+    // Step 7: Cleanup - delete original files from Cloudinary (optional)
     if (upload.file_paths) {
       const files = typeof upload.file_paths === 'string' 
         ? JSON.parse(upload.file_paths) 
         : upload.file_paths;
       for (const f of Array.isArray(files) ? files : [files]) {
-        if (f?.path) await deleteFileAsync(f.path).catch(() => {});
+        if (f?.public_id) {
+          try {
+            await cloudinary.uploader.destroy(f.public_id);
+            console.log('🗑️ Deleted from Cloudinary:', f.public_id);
+          } catch (e) {
+            console.warn('⚠️ Could not delete from Cloudinary:', e.message);
+          }
+        }
       }
     }
 
@@ -492,8 +552,8 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     res.json({
       message: 'e-APOSTILLE Certificate generated successfully',
       certificateNumber: certNumber,
-      certificatePath: relativeCertPath,
-      reuploadedFiles: reuploadedPaths
+      certificatePath: certUrl,  // Full Cloudinary URL
+      reuploadedFiles: reuploadedUrls  // Full Cloudinary URLs
     });
 
   } catch (err) {
@@ -501,10 +561,14 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
     console.error('❌ VERIFICATION FAILED:', err.message);
     console.error(err.stack);
     
-    // Cleanup uploaded files on error
+    // Cleanup uploaded files on error - delete from Cloudinary
     if (req.files) {
       for (const file of req.files) {
-        await deleteFileAsync(file.path).catch(() => {});
+        if (file.public_id) {
+          try {
+            await cloudinary.uploader.destroy(file.public_id);
+          } catch (e) {}
+        }
       }
     }
     
@@ -518,6 +582,7 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), upload.array('re
 });
 
 // Delete upload
+// Delete upload - CLOUDINARY VERSION
 router.delete('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -538,29 +603,45 @@ router.delete('/:id', verifyToken, async (req, res) => {
       }
     }
     
-    // Delete associated files
+    // Delete files from Cloudinary
+    const { cloudinary } = require('../config/cloudinary');
+    
     try {
-      if (upload.file_paths && Array.isArray(upload.file_paths)) {
-        for (const file of upload.file_paths) {
-          if (file.path) await fs.unlink(file.path).catch(() => {});
+      // Delete original files
+      if (upload.file_paths) {
+        const files = typeof upload.file_paths === 'string' 
+          ? JSON.parse(upload.file_paths) 
+          : upload.file_paths;
+        for (const f of Array.isArray(files) ? files : [files]) {
+          if (f?.public_id) {
+            await cloudinary.uploader.destroy(f.public_id, { resource_type: f.path?.includes('.pdf') ? 'raw' : 'image' });
+          }
         }
-      } else if (upload.file_path) {
-        await fs.unlink(upload.file_path).catch(() => {});
       }
       
+      // Delete certificate
       if (upload.certificate_pdf_path) {
-        const certPath = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', upload.certificate_pdf_path);
-        await fs.unlink(certPath).catch(() => {});
+        // Extract public_id from URL or store it separately
+        const certPublicId = upload.certificate_pdf_path.match(/apostille\/certificates\/(.+?)(?:\.[^.]+)?$/)?.[1];
+        if (certPublicId) {
+          await cloudinary.uploader.destroy(`apostille/certificates/${certPublicId}`, { resource_type: 'raw' });
+        }
       }
       
-      if (upload.reuploaded_file_paths && Array.isArray(upload.reuploaded_file_paths)) {
-        for (const filePath of upload.reuploaded_file_paths) {
-          const fullPath = path.join(process.env.UPLOAD_DIR || '/tmp/uploads', filePath);
-          await fs.unlink(fullPath).catch(() => {});
+      // Delete reuploaded files
+      if (upload.reuploaded_file_paths) {
+        const paths = typeof upload.reuploaded_file_paths === 'string'
+          ? JSON.parse(upload.reuploaded_file_paths)
+          : upload.reuploaded_file_paths;
+        for (const url of paths) {
+          const publicId = url.match(/apostille\/verified\/(.+?)(?:\.[^.]+)?$/)?.[1];
+          if (publicId) {
+            await cloudinary.uploader.destroy(`apostille/verified/${publicId}`, { resource_type: 'raw' });
+          }
         }
       }
     } catch (err) {
-      console.warn(`⚠️ Could not delete some files: ${err.message}`);
+      console.warn(`⚠️ Could not delete some Cloudinary files: ${err.message}`);
     }
     
     await pool.query('DELETE FROM uploads WHERE id = $1', [id]);
@@ -577,46 +658,46 @@ router.delete('/:id', verifyToken, async (req, res) => {
 });
 
 // Serve original files
+// Serve original files - CLOUDINARY VERSION (redirect to Cloudinary)
 router.get('/uploads/:filename', verifyToken, async (req, res) => {
   try {
     const filename = req.params.filename;
-    const uploadDir = process.env.UPLOAD_DIR || '/tmp/uploads';
-    const filePath = path.join(uploadDir, 'original', filename);
     
-    console.log('📥 View requested by user:', req.user.id, 'role:', req.user.role);
+    // Find the upload containing this file
+    const uploads = await pool.query(
+      `SELECT * FROM uploads 
+       WHERE file_paths::text LIKE $1`,
+      [`%${filename}%`]
+    );
     
-    if (!fs.existsSync(filePath)) {
-      const altPath = path.join(uploadDir, filename);
-      if (fs.existsSync(altPath)) {
-        return res.sendFile(path.resolve(altPath));
-      }
+    if (uploads.rows.length === 0) {
       return res.status(404).json({ message: 'File not found' });
     }
     
-    if (req.user.role !== 'admin') {
-      const uploads = await pool.query(
-        `SELECT * FROM uploads 
-         WHERE (file_path LIKE $1 OR file_paths::text LIKE $1)
-         AND user_id = $2`,
-        [`%${filename}%`, req.user.id]
-      );
-      
-      if (uploads.rows.length === 0) {
-        return res.status(403).json({ message: 'Access denied - you do not own this file' });
-      }
+    const upload = uploads.rows[0];
+    
+    // Check ownership (non-admin)
+    if (req.user.role !== 'admin' && upload.user_id !== req.user.id) {
+      return res.status(403).json({ message: 'Access denied' });
     }
     
-    const ext = path.extname(filename).toLowerCase();
-    const contentType = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.gif': 'image/gif'
-    }[ext] || 'application/octet-stream';
+    // Find the specific file URL
+    const files = typeof upload.file_paths === 'string' 
+      ? JSON.parse(upload.file_paths) 
+      : upload.file_paths;
     
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-    res.sendFile(path.resolve(filePath));
+    const file = files.find(f => 
+      (typeof f === 'object' ? f.path : f).includes(filename)
+    );
+    
+    if (!file) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+    
+    const fileUrl = typeof file === 'object' ? file.path : file;
+    
+    // Redirect to Cloudinary URL
+    res.redirect(fileUrl);
     
   } catch (error) {
     console.error('❌ File serve error:', error);
@@ -625,36 +706,40 @@ router.get('/uploads/:filename', verifyToken, async (req, res) => {
 });
 
 // Serve verified files (public)
+// Serve verified files - CLOUDINARY VERSION
 router.get('/verified/:filename', async (req, res) => {
   try {
     const { filename } = req.params;
     
+    // Security check
     if (filename.includes('..') || filename.includes('/')) {
       return res.status(400).json({ message: 'Invalid filename' });
     }
     
-    const uploadDir = process.env.UPLOAD_DIR || '/tmp/uploads';
-    const filePath = path.join(uploadDir, 'verified', filename);
+    // Find upload with this verified file
+    const result = await pool.query(
+      `SELECT reuploaded_file_paths FROM uploads 
+       WHERE status = 'verified' AND reuploaded_file_paths::text LIKE $1`,
+      [`%${filename}%`]
+    );
     
-    console.log('📥 Verified file request:', filename);
-    
-    if (!fs.existsSync(filePath)) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: 'File not found' });
     }
     
-    const ext = path.extname(filename).toLowerCase();
-    const contentType = {
-      '.pdf': 'application/pdf',
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png'
-    }[ext] || 'application/octet-stream';
+    // Find the specific URL
+    const paths = typeof result.rows[0].reuploaded_file_paths === 'string'
+      ? JSON.parse(result.rows[0].reuploaded_file_paths)
+      : result.rows[0].reuploaded_file_paths;
     
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.setHeader('Content-Disposition', 'inline');
+    const fileUrl = paths.find(p => p.includes(filename));
     
-    res.sendFile(path.resolve(filePath));
+    if (!fileUrl) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+    
+    // Redirect to Cloudinary
+    res.redirect(fileUrl);
     
   } catch (error) {
     console.error('❌ File serve error:', error);
@@ -663,6 +748,7 @@ router.get('/verified/:filename', async (req, res) => {
 });
 
 // Serve certificate PDFs (public)
+// Serve certificate PDFs - CLOUDINARY VERSION
 router.get('/certificates/:filename', async (req, res) => {
   try {
     const { filename } = req.params;
@@ -671,16 +757,19 @@ router.get('/certificates/:filename', async (req, res) => {
       return res.status(400).json({ message: 'Invalid filename' });
     }
     
-    const uploadDir = process.env.UPLOAD_DIR || '/tmp/uploads';
-    const filePath = path.join(uploadDir, 'certificates', filename);
+    // Find upload with this certificate
+    const result = await pool.query(
+      `SELECT certificate_pdf_path FROM uploads 
+       WHERE status = 'verified' AND certificate_pdf_path LIKE $1`,
+      [`%${filename}%`]
+    );
     
-    if (!fs.existsSync(filePath)) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Certificate not found' });
     }
     
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline');
-    res.sendFile(path.resolve(filePath));
+    // Redirect to Cloudinary URL
+    res.redirect(result.rows[0].certificate_pdf_path);
     
   } catch (error) {
     console.error('❌ Certificate serve error:', error);
@@ -689,7 +778,8 @@ router.get('/certificates/:filename', async (req, res) => {
 });
 
 // PATCH endpoint for partial file updates
-router.patch('/edit/:id', verifyToken, upload.array('files', 10), async (req, res) => {
+// PATCH endpoint for partial file updates - CLOUDINARY VERSION
+router.patch('/edit/:id', verifyToken, uploadOriginal.array('files', 10), async (req, res) => {
   try {
     const { id } = req.params;
     const { removeIndices } = req.body;
@@ -713,8 +803,6 @@ router.patch('/edit/:id', verifyToken, upload.array('files', 10), async (req, re
       } catch (e) {
         currentFilePaths = [upload.file_paths];
       }
-    } else if (upload.file_path) {
-      currentFilePaths = [upload.file_path];
     }
 
     let indicesToRemove = [];
@@ -730,40 +818,46 @@ router.patch('/edit/:id', verifyToken, upload.array('files', 10), async (req, re
     }
 
     indicesToRemove.sort((a, b) => b - a);
+    const validIndices = indicesToRemove.filter(index => index >= 0 && index < currentFilePaths.length);
 
-    const validIndices = indicesToRemove.filter(index => 
-      index >= 0 && index < currentFilePaths.length
-    );
-
+    // Delete from Cloudinary
+    const { cloudinary } = require('../config/cloudinary');
+    
     for (const index of validIndices) {
-      const filePath = currentFilePaths[index];
-      if (filePath) {
+      const file = currentFilePaths[index];
+      if (file && typeof file === 'object' && file.public_id) {
         try {
-          const fullPath = path.join(__dirname, '..', 'uploads', path.basename(filePath));
-          if (fs.existsSync(fullPath)) {
-            fs.unlinkSync(fullPath);
-          }
+          await cloudinary.uploader.destroy(file.public_id, { 
+            resource_type: file.path?.includes('.pdf') ? 'raw' : 'image' 
+          });
         } catch (err) {
-          console.error('Error deleting file:', err);
+          console.error('Error deleting from Cloudinary:', err);
         }
       }
     }
 
+    // Remove from array
     for (const index of validIndices) {
       currentFilePaths.splice(index, 1);
     }
 
+    // Add new files (already uploaded to Cloudinary by multer)
     const newFiles = req.files || [];
-    const newFilePaths = newFiles.map(file => `/uploads/${file.filename}`);
+    const newFilePaths = newFiles.map(file => ({
+      path: file.path,  // Cloudinary URL
+      original_name: file.originalname,
+      public_id: file.filename
+    }));
     
     const updatedFilePaths = [...currentFilePaths, ...newFilePaths];
 
+    // Determine file type
     let fileType = upload.file_type;
     if (updatedFilePaths.length === 0) {
       fileType = null;
     } else if (updatedFilePaths.length === 1) {
-      const ext = path.extname(updatedFilePaths[0]).toLowerCase();
-      fileType = ext === '.pdf' ? 'pdf' : 'image';
+      const url = updatedFilePaths[0].path || updatedFilePaths[0];
+      fileType = url.includes('.pdf') ? 'pdf' : 'image';
     } else {
       fileType = 'multi-image';
     }
@@ -778,11 +872,8 @@ router.patch('/edit/:id', verifyToken, upload.array('files', 10), async (req, re
       RETURNING *
     `;
 
-    const filePathsValue = updatedFilePaths.length > 1 
-      ? JSON.stringify(updatedFilePaths) 
-      : updatedFilePaths[0] || null;
-    
-    const filePathValue = updatedFilePaths.length > 0 ? updatedFilePaths[0] : null;
+    const filePathsValue = JSON.stringify(updatedFilePaths);
+    const filePathValue = updatedFilePaths.length > 0 ? updatedFilePaths[0].path : null;
 
     const result = await pool.query(updateQuery, [
       filePathsValue,

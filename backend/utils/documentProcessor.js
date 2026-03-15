@@ -245,4 +245,13 @@ async function processImage(pdfDoc, imagePath, signers) {
   await applySignaturesToPDF(pdfDoc, signers);
 }
 
+const uploadResult = await cloudinary.uploader.upload(outputPath, {
+  folder: 'apostille/verified',
+  resource_type: 'raw',
+  format: 'pdf'
+});
+
+// Return Cloudinary URL
+return uploadResult.secure_url;
+
 module.exports = { processDocumentWithSignatures, processMultipleDocuments };
