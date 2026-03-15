@@ -247,18 +247,21 @@ router.get('/download/:uploadId', verifyToken, async (req, res) => {
       try {
         console.log(`[Download] Fetching: ${file.url}`);
         
-        // Download from Cloudinary
+        // CRITICAL FIX: Use responseType: 'arraybuffer' for binary files
         const response = await axios.get(file.url, {
-          responseType: 'arraybuffer',
-          timeout: 30000
+          responseType: 'arraybuffer',  // THIS IS REQUIRED!
+          timeout: 30000,
+          headers: {
+            'Accept': '*/*'  // Accept any file type
+          }
         });
         
         // Add to ZIP with folder structure
         const zipPath = `${file.folder}/${file.name}`;
-        zip.addFile(zipPath, Buffer.from(response.data));
+        zip.addFile(zipPath, Buffer.from(response.data));  // Convert arraybuffer to Buffer
         
         successCount++;
-        console.log(`[Download] Added: ${zipPath}`);
+        console.log(`[Download] Added: ${zipPath}, size: ${response.data.length} bytes`);
       } catch (err) {
         console.error(`[Download] Failed to fetch ${file.url}:`, err.message);
         // Continue with other files
@@ -277,7 +280,7 @@ router.get('/download/:uploadId', verifyToken, async (req, res) => {
       'Content-Length': zipBuffer.length
     });
     
-    console.log(`[Download] Success: ${successCount} files, ${zipBuffer.length} bytes`);
+    console.log(`[Download] Success: ${successCount} files, ZIP size: ${zipBuffer.length} bytes`);
     res.send(zipBuffer);
 
   } catch (err) {
@@ -317,61 +320,79 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 });
 
 // GET /verify/:certificateNumber - PUBLIC verification endpoint
+// Get verification details by certificate number
 router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
-    console.log('🔍 Verification request for:', certificateNumber);
-
+    
+    console.log('[Verify] Looking up certificate:', certificateNumber);
+    
     const result = await pool.query(
-      `SELECT uploads.*, users.name as user_name, verifier.name as verified_by_name
-       FROM uploads 
-       JOIN users ON uploads.user_id = users.id
-       LEFT JOIN users verifier ON uploads.verified_by = verifier.id
-       WHERE uploads.certificate_number = $1 AND uploads.status = 'verified'`,
+      `SELECT u.*, 
+              us.name as user_name, 
+              us.email as user_email,
+              v.name as verified_by_name
+       FROM uploads u
+       LEFT JOIN users us ON u.user_id = us.id
+       LEFT JOIN users v ON u.verified_by = v.id
+       WHERE u.certificate_number = $1 AND u.status = 'verified'`,
       [certificateNumber]
     );
-    
+
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Certificate not found' });
+      return res.status(404).json({ message: 'Certificate not found or not verified' });
+    }
+
+    const upload = result.rows[0];
+    
+    // Parse JSON fields safely
+    let certificateData = {};
+    let reuploadedFiles = [];
+    
+    try {
+      if (upload.certificate_data) {
+        certificateData = typeof upload.certificate_data === 'string' 
+          ? JSON.parse(upload.certificate_data) 
+          : upload.certificate_data;
+      }
+    } catch (e) {
+      console.warn('[Verify] Failed to parse certificate_data:', e.message);
     }
     
-    const upload = result.rows[0];
-
-    // Parse reuploaded_file_paths
-    let reuploadedFiles = [];
-    if (upload.reuploaded_file_paths) {
-      try {
-        const paths = typeof upload.reuploaded_file_paths === 'string' 
-          ? JSON.parse(upload.reuploaded_file_paths) 
+    try {
+      if (upload.reuploaded_file_paths) {
+        reuploadedFiles = typeof upload.reuploaded_file_paths === 'string'
+          ? JSON.parse(upload.reuploaded_file_paths)
           : upload.reuploaded_file_paths;
-        
-        if (Array.isArray(paths)) {
-          reuploadedFiles = paths;
-        }
-      } catch (e) {
-        console.warn('⚠️ Failed to parse reuploaded_file_paths:', e);
       }
+    } catch (e) {
+      console.warn('[Verify] Failed to parse reuploaded_file_paths:', e.message);
     }
 
-    console.log('✅ Verification data:', {
-      certPath: upload.certificate_pdf_path,
-      reuploadedFiles: reuploadedFiles
-    });
-
-    res.json({
+    // Return data in the format expected by VerificationPage.tsx
+    const responseData = {
       certificateNumber: upload.certificate_number,
-      certificateFilename: upload.certificate_pdf_path,
-      certificateData: upload.certificate_data,
-      reuploadedFiles: reuploadedFiles,
-      signaturesData: upload.additional_signatures_data || [],
-      verifiedAt: upload.verified_at,
+      certificatePath: upload.certificate_pdf_path,  // Cloudinary URL
+      reuploadedFiles: reuploadedFiles,  // Array of Cloudinary URLs
       userName: upload.user_name,
-      verifiedBy: upload.verified_by_name
-    });
+      userEmail: upload.user_email,
+      verifiedByName: upload.verified_by_name,
+      verifiedAt: upload.verified_at,
+      certificateData: certificateData,
+      // Additional fields for display
+      documentIssuer: certificateData.documentIssuer || certificateData.actingCapacity || 'N/A',
+      documentLocation: certificateData.documentLocation || 'Dhaka',
+      certificateLocation: certificateData.certificateLocation || 'Dhaka',
+      certificateDate: certificateData.certificateDate || upload.verified_at,
+      authorityName: certificateData.authorityName || 'MD. ASIF KHAN PRANTO'
+    };
 
+    console.log('[Verify] Found certificate, returning data');
+    res.json(responseData);
+    
   } catch (err) {
-    console.error('❌ Error fetching verification:', err);
-    res.status(500).json({ message: 'Server error' });
+    console.error('[Verify] Error:', err);
+    res.status(500).json({ message: 'Verification failed', error: err.message });
   }
 });
 
