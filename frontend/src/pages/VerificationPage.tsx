@@ -15,29 +15,46 @@ const VerificationPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"certificate" | "documents">("certificate");
 
-  useEffect(() => {
-    let isMounted = true;
-    
-    const verifyCertificate = async () => {
-      try {
-        setLoading(true);
-        const response = await api.get(`/files/verify/${certificateNumber}`);
-        
-        if (!isMounted) return;
-        
-        console.log('[VerificationPage] Data received:', response.data);
-        setVerificationData(response.data);
-        setLoading(false);
-      } catch (err: any) {
-        console.error("Verification failed", err);
-        setError(err.response?.data?.message || "সার্টিফিকেট পাওয়া যায়নি");
-        setLoading(false);
-      }
-    };
+ useEffect(() => {
+  let isMounted = true;
+  
+  const verifyCertificate = async () => {
+    try {
+      setLoading(true);
+      console.log(`[VerificationPage] Fetching certificate: ${certificateNumber}`);
+      
+      const response = await api.get(`/files/verify/${certificateNumber}`);
+      
+      if (!isMounted) return;
+      
+      // DEBUG: Log everything
+      console.log('[VerificationPage] Raw response:', response);
+      console.log('[VerificationPage] Response data:', response.data);
+      console.log('[VerificationPage] Data type:', typeof response.data);
+      
+      // Check each field
+      const data = response.data;
+      console.log('[VerificationPage] certificatePath:', data?.certificatePath);
+      console.log('[VerificationPage] certificateNumber:', data?.certificateNumber);
+      console.log('[VerificationPage] reuploadedFiles:', data?.reuploadedFiles);
+      console.log('[VerificationPage] reuploadedFiles type:', typeof data?.reuploadedFiles);
+      console.log('[VerificationPage] reuploadedFiles isArray:', Array.isArray(data?.reuploadedFiles));
+      console.log('[VerificationPage] userName:', data?.userName);
+      console.log('[VerificationPage] verifiedAt:', data?.verifiedAt);
+      
+      setVerificationData(data);
+      setLoading(false);
+    } catch (err: any) {
+      console.error("[VerificationPage] Error:", err);
+      console.error("[VerificationPage] Error response:", err.response?.data);
+      setError(err.response?.data?.message || "সার্টিফিকেট পাওয়া যায়নি");
+      setLoading(false);
+    }
+  };
 
-    verifyCertificate();
-    return () => { isMounted = false; };
-  }, [certificateNumber]);
+  verifyCertificate();
+  return () => { isMounted = false; };
+}, [certificateNumber]);
 
   const handleDownloadCertificate = async () => {
     if (!verificationData?.certificatePath) {

@@ -321,6 +321,7 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 
 // GET /verify/:certificateNumber - PUBLIC verification endpoint
 // Get verification details by certificate number
+// Get verification details by certificate number
 router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
@@ -340,6 +341,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      console.log('[Verify] Certificate not found:', certificateNumber);
       return res.status(404).json({ message: 'Certificate not found or not verified' });
     }
 
@@ -369,17 +371,20 @@ router.get('/verify/:certificateNumber', async (req, res) => {
       console.warn('[Verify] Failed to parse reuploaded_file_paths:', e.message);
     }
 
-    // Return data in the format expected by VerificationPage.tsx
+    // Return data in the EXACT format expected by VerificationPage.tsx
     const responseData = {
+      // REQUIRED FIELDS for VerificationPage:
       certificateNumber: upload.certificate_number,
-      certificatePath: upload.certificate_pdf_path,  // Cloudinary URL
+      certificatePath: upload.certificate_pdf_path,  // Cloudinary URL to certificate PDF
       reuploadedFiles: reuploadedFiles,  // Array of Cloudinary URLs
+      
+      // Display fields:
       userName: upload.user_name,
       userEmail: upload.user_email,
       verifiedByName: upload.verified_by_name,
       verifiedAt: upload.verified_at,
-      certificateData: certificateData,
-      // Additional fields for display
+      
+      // Certificate details:
       documentIssuer: certificateData.documentIssuer || certificateData.actingCapacity || 'N/A',
       documentLocation: certificateData.documentLocation || 'Dhaka',
       certificateLocation: certificateData.certificateLocation || 'Dhaka',
@@ -387,7 +392,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
       authorityName: certificateData.authorityName || 'MD. ASIF KHAN PRANTO'
     };
 
-    console.log('[Verify] Found certificate, returning data');
+    console.log('[Verify] Returning data:', JSON.stringify(responseData, null, 2));
     res.json(responseData);
     
   } catch (err) {
