@@ -144,25 +144,36 @@ async function processMultipleDocuments(files, signers, certNumber = null) {
 // FIXED FUNCTION - Handles Cloudinary URLs
 // ==========================================
 async function processDocumentWithSignatures(filePathOrUrl, signers, certNumber = null) {
-  let inputPath = filePathOrUrl;
+  // CRITICAL: Trim the URL to remove any trailing spaces
+  const trimmedPath = filePathOrUrl.trim();
+  
+  let inputPath = trimmedPath;
   let isTempFile = false;
   
   try {
-    // If it's a Cloudinary URL, download it first
-    if (filePathOrUrl.startsWith('http://') || filePathOrUrl.startsWith('https://')) {
+    // Check if it's a URL (Cloudinary or any HTTP/HTTPS URL)
+    if (trimmedPath.startsWith('http://') || trimmedPath.startsWith('https://')) {
       const tempDir = '/tmp';
-      const tempFileName = `download-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      // Extract filename from URL, remove query params
+      const urlObj = new URL(trimmedPath);
+      const pathname = urlObj.pathname;
+      const originalName = path.basename(pathname) || `download-${Date.now()}`;
+      const tempFileName = `temp-${Date.now()}-${originalName}`;
       inputPath = path.join(tempDir, tempFileName);
       isTempFile = true;
       
-      console.log('📥 Downloading from Cloudinary:', filePathOrUrl);
-      await downloadFromUrl(filePathOrUrl, inputPath);
-      console.log('✅ Downloaded to:', inputPath);
+      console.log('📥 Downloading from URL:', trimmedPath);
+      console.log('💾 Saving to:', inputPath);
+      
+      await downloadFromUrl(trimmedPath, inputPath);
+      console.log('✅ Downloaded successfully');
     }
 
     const ext = path.extname(inputPath).toLowerCase();
     let pdfDoc;
     let originalFileName = path.basename(inputPath);
+    
+    console.log('🔍 Processing file:', inputPath, 'Extension:', ext);
     
     // Step 1: Load or create PDF
     if (ext === '.pdf') {
@@ -173,7 +184,7 @@ async function processDocumentWithSignatures(filePathOrUrl, signers, certNumber 
       pdfDoc = await PDFDocument.create();
       await processImage(pdfDoc, inputPath, signers);
     } else {
-      throw new Error(`Unsupported file type: ${ext}`);
+      throw new Error(`Unsupported file type: ${ext} for file: ${inputPath}`);
     }
 
     // Step 2: Save to buffer
@@ -200,7 +211,7 @@ async function processDocumentWithSignatures(filePathOrUrl, signers, certNumber 
     return uploadResult.secure_url;
     
   } catch (error) {
-    console.error('Document processing error:', error);
+    console.error('❌ Document processing error:', error);
     throw error;
   } finally {
     // Cleanup temp file if we downloaded it
@@ -299,6 +310,7 @@ async function drawSignatureBox(page, signer, x, baseY, boxWidth, sigWidth, sigH
 }
 
 async function processImage(pdfDoc, imagePath, signers) {
+  // This is line 260 - make sure imagePath is a local file path, not URL
   const imageBytes = fs.readFileSync(imagePath);
   const image = imagePath.toLowerCase().endsWith('.png') ? await pdfDoc.embedPng(imageBytes) : await pdfDoc.embedJpg(imageBytes);
   const sigSpace = signers.length <= 2 ? 150 : 250;
