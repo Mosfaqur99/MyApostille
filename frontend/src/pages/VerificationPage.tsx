@@ -15,12 +15,13 @@ const VerificationPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"certificate" | "documents">("certificate");
   
-  const hasFetched = useRef(false);
+  // Use a Map to track fetched certificates across component lifecycles
+  const fetchedCerts = useRef<Set<string>>(new Set());
+  const abortController = useRef<AbortController | null>(null);
 
   // Helper to make PDF viewable in browser
   const getViewablePdfUrl = (url: string) => {
     if (!url) return '';
-    // Force inline viewing for Cloudinary PDFs
     if (url.includes('cloudinary.com')) {
       const separator = url.includes('?') ? '&' : '?';
       return `${url}${separator}fl_inline=true`;
@@ -29,25 +30,35 @@ const VerificationPage = () => {
   };
 
   const fetchData = useCallback(async () => {
-    if (hasFetched.current) {
-      console.log('[VerificationPage] Skipping duplicate fetch');
-      return;
-    }
-    
     if (!certificateNumber) {
       setError("সার্টিফিকেট নম্বর পাওয়া যায়নি");
       setLoading(false);
       return;
     }
 
-    hasFetched.current = true;
+    // Deduplication: Check if already fetching/fetched this certificate
+    if (fetchedCerts.current.has(certificateNumber)) {
+      console.log('[VerificationPage] Already fetched or fetching:', certificateNumber);
+      return;
+    }
+
+    // Mark as fetched immediately (before async)
+    fetchedCerts.current.add(certificateNumber);
+    
+    // Cancel any in-flight request
+    if (abortController.current) {
+      abortController.current.abort();
+    }
+    abortController.current = new AbortController();
     
     try {
       setLoading(true);
       setError(null);
       
       console.log('[VerificationPage] Fetching certificate:', certificateNumber);
-      const response = await api.get(`/files/verify/${certificateNumber}`);
+      const response = await api.get(`/files/verify/${certificateNumber}`, {
+        signal: abortController.current.signal
+      });
       
       console.log('[VerificationPage] Data received:', response.data);
       
@@ -57,9 +68,17 @@ const VerificationPage = () => {
 
       setVerificationData(response.data);
     } catch (err: any) {
+      // Don't treat abort as error
+      if (err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
+        console.log('[VerificationPage] Request cancelled');
+        return;
+      }
+      
       console.error("Verification failed", err);
       setError(err.response?.data?.message || err.message || "সার্টিফিকেট পাওয়া যায়নি");
-      hasFetched.current = false;
+      
+      // Remove from fetched set on error so retry works
+      fetchedCerts.current.delete(certificateNumber);
     } finally {
       setLoading(false);
     }
@@ -67,7 +86,19 @@ const VerificationPage = () => {
 
   useEffect(() => {
     fetchData();
+    
+    // Cleanup: abort in-flight request on unmount
+    return () => {
+      if (abortController.current) {
+        abortController.current.abort();
+      }
+    };
   }, [fetchData]);
+
+  // Reset fetched set when certificateNumber changes (navigation)
+  useEffect(() => {
+    fetchedCerts.current.clear();
+  }, [certificateNumber]);
 
   const handleDownloadCertificate = () => {
     if (!verificationData?.certificatePath) {
@@ -78,6 +109,7 @@ const VerificationPage = () => {
     toast.success('সার্টিফিকেট ডাউনলোড শুরু হয়েছে!');
   };
 
+  // ... rest of your component (loading, error, success states) remains the same
   // LOADING STATE
   if (loading) {
     return (
@@ -105,10 +137,13 @@ const VerificationPage = () => {
             <h2 className="text-2xl font-bold mb-2 text-gray-800">যাচাই ব্যর্থ</h2>
             <p className="text-gray-600 mb-6">{error}</p>
             <button 
-              onClick={() => navigate("/")} 
+              onClick={() => {
+                fetchedCerts.current.delete(certificateNumber || '');
+                fetchData();
+              }} 
               className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition-colors"
             >
-              হোম পেজে ফিরে যান
+              আবার চেষ্টা করুন
             </button>
           </div>
         </main>
@@ -127,7 +162,7 @@ const VerificationPage = () => {
             <p className="text-gray-600">কোনো তথ্য পাওয়া যায়নি</p>
             <button 
               onClick={() => {
-                hasFetched.current = false;
+                fetchedCerts.current.delete(certificateNumber || '');
                 fetchData();
               }} 
               className="mt-4 px-6 py-3 bg-green-600 text-white rounded-lg font-bold"
@@ -145,7 +180,6 @@ const VerificationPage = () => {
   const hasCertificate = !!verificationData.certificatePath;
   const hasDocuments = Array.isArray(verificationData.reuploadedFiles) && verificationData.reuploadedFiles.length > 0;
   
-  // Transform URL for viewing
   const viewableCertificateUrl = getViewablePdfUrl(verificationData.certificatePath);
 
   return (
@@ -219,7 +253,6 @@ const VerificationPage = () => {
                 <div className="space-y-6">
                   {hasCertificate ? (
                     <>
-                      {/* Certificate Viewer - Using object tag with transformed URL */}
                       <div className="w-full border-2 border-gray-200 rounded-xl overflow-hidden bg-white shadow-inner">
                         <object
                           data={viewableCertificateUrl}
@@ -244,7 +277,6 @@ const VerificationPage = () => {
                         </object>
                       </div>
                       
-                      {/* Download Button */}
                       <button 
                         onClick={handleDownloadCertificate} 
                         className="w-full bg-green-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-green-700 transition-all duration-300 shadow-lg hover:shadow-xl flex items-center justify-center gap-3"
@@ -309,7 +341,6 @@ const VerificationPage = () => {
             </div>
           </div>
 
-          {/* Back Button */}
           <button 
             onClick={() => navigate(-1)} 
             className="w-full bg-white border-2 border-green-600 text-green-700 py-3.5 rounded-xl font-bold text-lg hover:bg-green-50 transition-all duration-300 shadow-md hover:shadow-lg flex items-center justify-center gap-3 group"

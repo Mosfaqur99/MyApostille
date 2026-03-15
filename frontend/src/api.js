@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// ⚠️ FIXED: Removed trailing space that was causing 404 errors
-const API_URL = 'https://bangladesh-apostille-api.onrender.com'; // No space at end!
+// ✅ ACTUALLY FIXED: No trailing space
+const API_URL = 'https://bangladesh-apostille-api.onrender.com';
 
 console.log('Using API URL:', API_URL);
 
@@ -13,7 +13,6 @@ const api = axios.create({
   }
 });
 
-// Request interceptor
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -29,7 +28,6 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -41,5 +39,5 @@ api.interceptors.response.use(
   }
 );
 
-export const API_BASE_URL = API_URL; // Cleaner export
+export const API_BASE_URL = API_URL;
 export default api;
