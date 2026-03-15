@@ -6,13 +6,10 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import UserDashboard from './pages/UserDashboard';
 import AdminDashboard from './pages/AdminDashboard';
-import UploadPage from './pages/UploadPage'; // NEW IMPORT
+import UploadPage from './pages/UploadPage';
 import VerificationPage from './pages/VerificationPage';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
-
-// Add to your routes:
-
 
 // Protected Route component
 const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: string[] }> = ({ 
@@ -46,7 +43,8 @@ const AppContent: React.FC = () => {
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path="/login" element={<Login />} />
-<Route path="/register" element={<Register />} />
+        <Route path="/register" element={<Register />} />
+        
         <Route 
           path="/dashboard" 
           element={
@@ -56,10 +54,9 @@ const AppContent: React.FC = () => {
           } 
         />
         
-          <Route path="/verify/:certificateNumber" element={<ProtectedRoute>
-      <VerificationPage />
-    </ProtectedRoute>} />
-
+        {/* PUBLIC VERIFICATION - No auth required */}
+        <Route path="/verify/:certificateNumber" element={<VerificationPage />} />
+        
         <Route 
           path="/upload" 
           element={
@@ -68,8 +65,10 @@ const AppContent: React.FC = () => {
             </ProtectedRoute>
           } 
         />
+        
         <Route path="/forgot-password" element={<ForgotPassword />} />
-<Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        
         <Route 
           path="/admin" 
           element={

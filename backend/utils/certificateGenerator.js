@@ -13,7 +13,7 @@ async function uploadCertificateToCloudinary(pdfBuffer, certNumber) {
       {
         folder: 'apostille/certificates',
         public_id: `certificate-${certNumber}`,
-        resource_type: 'raw',  // For PDFs
+        resource_type: 'auto',  // For PDFs
         format: 'pdf'
       },
       (error, result) => {
