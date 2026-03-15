@@ -171,10 +171,11 @@ router.get('/pending', verifyToken, authorizeRole('admin'), async (req, res) => 
 
 // Download originals
 // Download files as ZIP - CLOUDINARY VERSION
+// Download files as ZIP - CLOUDINARY VERSION
 router.get('/download/:uploadId', verifyToken, async (req, res) => {
   try {
     const { uploadId } = req.params;
-    const { type } = req.query; // 'originals' or 'verified' or 'certificate'
+    const { type } = req.query; // 'originals', 'verified', 'certificate', or 'all'
     
     console.log(`[Download] Starting for ID: ${uploadId}, type: ${type || 'all'}`);
 

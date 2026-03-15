@@ -2,6 +2,9 @@ const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const fontkit = require('@pdf-lib/fontkit');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const { cloudinary } = require('../config/cloudinary');
+const streamifier = require('streamifier');
 
 // ==========================================
 // TEXT SIZE & SPACING CONFIGURATION
@@ -10,8 +13,8 @@ const TEXT_SIZES = {
   date: 7,
   name: 8,
   designation: 7,
-  attestedImgHeight: 14, // Slightly smaller to match real stamps
-  lineHeight: 9          // Better spacing between lines
+  attestedImgHeight: 14,
+  lineHeight: 9
 };
 
 const LAYOUT_CONFIG = {
@@ -20,7 +23,7 @@ const LAYOUT_CONFIG = {
     sigBoxWidth: 180,
     sigWidth: 60,
     sigHeight: 25,
-    yBottomOffset: 30,    // Distance from bottom of page
+    yBottomOffset: 30,
     verticalRowGap: 80,
     marginX: 20,
     gapBetweenBoxes: 30
@@ -53,13 +56,6 @@ function formatSignatureDate(dateString) {
   const month = date.toLocaleString('default', { month: 'short' });
   const year = date.getFullYear();
   return `${day} ${month} ${year}`;
-}
-
-function getOutputDir() {
-  const baseDir = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
-  const outputDir = path.join(baseDir, 'verified');
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-  return outputDir;
 }
 
 function getAssetsPath() {
@@ -110,6 +106,27 @@ function calculateLayout(pageWidth, pageHeight, numSigners) {
   return { config, sigsPerRow, boxWidth: actualBoxWidth, startX };
 }
 
+// Helper to download file from URL to temp location
+async function downloadFromUrl(url, tempPath) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(tempPath);
+    https.get(url, (response) => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`Failed to download: ${response.statusCode}`));
+        return;
+      }
+      response.pipe(file);
+      file.on('finish', () => {
+        file.close();
+        resolve(tempPath);
+      });
+    }).on('error', (err) => {
+      fs.unlink(tempPath, () => {});
+      reject(err);
+    });
+  });
+}
+
 async function processMultipleDocuments(files, signers, certNumber = null) {
   const results = [];
   for (let i = 0; i < files.length; i++) {
@@ -123,44 +140,78 @@ async function processMultipleDocuments(files, signers, certNumber = null) {
   return results;
 }
 
-async function processDocumentWithSignatures(filePath, signers, certNumber = null) {
-  const ext = path.extname(filePath).toLowerCase();
-  let pdfDoc;
-  let originalFileName = path.basename(filePath);
+// ==========================================
+// FIXED FUNCTION - Handles Cloudinary URLs
+// ==========================================
+async function processDocumentWithSignatures(filePathOrUrl, signers, certNumber = null) {
+  let inputPath = filePathOrUrl;
+  let isTempFile = false;
+  
   try {
-  if (ext === '.pdf') {
-    const pdfBytes = fs.readFileSync(filePath);
-    pdfDoc = await PDFDocument.load(pdfBytes);
-    await applySignaturesToPDF(pdfDoc, signers);
-  } else if (['.jpg', '.jpeg', '.png'].includes(ext)) {
-    pdfDoc = await PDFDocument.create();
-    await processImage(pdfDoc, filePath, signers);
-  } else {
-    throw new Error(`Unsupported file type: ${ext}`);
-  }
+    // If it's a Cloudinary URL, download it first
+    if (filePathOrUrl.startsWith('http://') || filePathOrUrl.startsWith('https://')) {
+      const tempDir = '/tmp';
+      const tempFileName = `download-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      inputPath = path.join(tempDir, tempFileName);
+      isTempFile = true;
+      
+      console.log('📥 Downloading from Cloudinary:', filePathOrUrl);
+      await downloadFromUrl(filePathOrUrl, inputPath);
+      console.log('✅ Downloaded to:', inputPath);
+    }
 
-  const outputDir = getOutputDir();
-  const outputFileName = `verified_${Date.now()}_${originalFileName.replace(/\.[^/.]+$/, '')}.pdf`;
-  const outputPath = path.join(outputDir, outputFileName);
-  fs.writeFileSync(outputPath, await pdfDoc.save());
-  return `verified/${outputFileName}`;
+    const ext = path.extname(inputPath).toLowerCase();
+    let pdfDoc;
+    let originalFileName = path.basename(inputPath);
+    
+    // Step 1: Load or create PDF
+    if (ext === '.pdf') {
+      const pdfBytes = fs.readFileSync(inputPath);
+      pdfDoc = await PDFDocument.load(pdfBytes);
+      await applySignaturesToPDF(pdfDoc, signers);
+    } else if (['.jpg', '.jpeg', '.png'].includes(ext)) {
+      pdfDoc = await PDFDocument.create();
+      await processImage(pdfDoc, inputPath, signers);
+    } else {
+      throw new Error(`Unsupported file type: ${ext}`);
+    }
 
-  const uploadResult = await cloudinary.uploader.upload(outputPath, {
-      folder: 'apostille/verified',
-      public_id: `verified-${certNumber}-${Date.now()}`,
-      resource_type: 'raw',
-      format: 'pdf'
+    // Step 2: Save to buffer
+    const pdfBytes = await pdfDoc.save();
+    
+    // Step 3: Upload to Cloudinary using stream
+    const uploadResult = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'apostille/verified',
+          public_id: `verified-${certNumber || 'nocert'}-${Date.now()}`,
+          resource_type: 'raw',
+          format: 'pdf'
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+      streamifier.createReadStream(Buffer.from(pdfBytes)).pipe(uploadStream);
     });
     
-    // Clean up temp file
-    await fs.unlink(outputPath);
-    
-    // Return Cloudinary URL
+    console.log('✅ Document uploaded to Cloudinary:', uploadResult.secure_url);
     return uploadResult.secure_url;
     
   } catch (error) {
     console.error('Document processing error:', error);
     throw error;
+  } finally {
+    // Cleanup temp file if we downloaded it
+    if (isTempFile && inputPath && fs.existsSync(inputPath)) {
+      try {
+        fs.unlinkSync(inputPath);
+        console.log('🗑️ Cleaned up temp file:', inputPath);
+      } catch (e) {
+        console.warn('⚠️ Failed to cleanup temp file:', e.message);
+      }
+    }
   }
 }
 
@@ -168,7 +219,7 @@ async function applySignaturesToPDF(pdfDoc, signers) {
   pdfDoc.registerFontkit(fontkit);
   const pages = pdfDoc.getPages();
   const assetsPath = getAssetsPath();
-  const purpleColor = rgb(91/255, 43/255, 131/255); // Official Purple-ish Blue tint
+  const purpleColor = rgb(91/255, 43/255, 131/255);
 
   let attestedImg = null;
   try {
@@ -196,7 +247,6 @@ async function applySignaturesToPDF(pdfDoc, signers) {
       const col = i % layout.sigsPerRow;
       
       const x = layout.startX + (col * (layout.boxWidth + layout.config.gapBetweenBoxes));
-      // Positioning from bottom up
       const baseY = layout.config.yBottomOffset + (row * layout.config.verticalRowGap);
 
       await drawSignatureBox(
@@ -211,7 +261,6 @@ async function applySignaturesToPDF(pdfDoc, signers) {
 async function drawSignatureBox(page, signer, x, baseY, boxWidth, sigWidth, sigHeight, customFont, boldFont, color, assetsPath, attestedImg) {
   let currentY = baseY;
 
-  // 1. DESIGNATION & ORG (Draw first at bottom, work upwards)
   const orgLines = signer.organization ? wrapText(signer.organization, boxWidth, customFont, TEXT_SIZES.designation) : [];
   const desigLines = wrapText(signer.designation || "", boxWidth, customFont, TEXT_SIZES.designation);
 
@@ -221,19 +270,16 @@ async function drawSignatureBox(page, signer, x, baseY, boxWidth, sigWidth, sigH
     currentY += TEXT_SIZES.lineHeight;
   });
 
-  // 2. NAME
   const nameText = signer.name || "";
   const nameW = boldFont.widthOfTextAtSize(nameText, TEXT_SIZES.name);
   page.drawText(nameText, { x: x + (boxWidth - nameW) / 2, y: currentY, size: TEXT_SIZES.name, font: boldFont, color });
   currentY += TEXT_SIZES.lineHeight;
 
-  // 3. DATE
   const dateText = formatSignatureDate(signer.signatureDate || new Date());
   const dateW = customFont.widthOfTextAtSize(dateText, TEXT_SIZES.date);
   page.drawText(dateText, { x: x + (boxWidth - dateW) / 2, y: currentY, size: TEXT_SIZES.date, font: customFont, color });
-  currentY += 8; // Gap before signature image
+  currentY += 8;
 
-  // 4. SIGNATURE IMAGE
   try {
     const sigPath = path.join(assetsPath, "signatures", "documents", signer.signature_image);
     if (fs.existsSync(sigPath)) {
@@ -246,14 +292,10 @@ async function drawSignatureBox(page, signer, x, baseY, boxWidth, sigWidth, sigH
     }
   } catch (e) { console.warn("Sig image error", signer.name); }
 
-  // 5. ATTESTED TEXT IMAGE (Topmost element)
   if (attestedImg) {
     const imgW = (TEXT_SIZES.attestedImgHeight * attestedImg.width) / attestedImg.height;
     page.drawImage(attestedImg, { x: x + (boxWidth - imgW) / 2, y: currentY, width: imgW, height: TEXT_SIZES.attestedImgHeight });
   }
-
-
-
 }
 
 async function processImage(pdfDoc, imagePath, signers) {
@@ -265,6 +307,5 @@ async function processImage(pdfDoc, imagePath, signers) {
   page.drawImage(image, { x: 0, y: sigSpace, width: image.width, height: image.height });
   await applySignaturesToPDF(pdfDoc, signers);
 }
-
 
 module.exports = { processDocumentWithSignatures, processMultipleDocuments };
