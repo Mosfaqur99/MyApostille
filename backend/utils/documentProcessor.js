@@ -233,6 +233,16 @@ async function drawSignatureBox(page, signer, x, baseY, boxWidth, sigWidth, sigH
     const imgW = (TEXT_SIZES.attestedImgHeight * attestedImg.width) / attestedImg.height;
     page.drawImage(attestedImg, { x: x + (boxWidth - imgW) / 2, y: currentY, width: imgW, height: TEXT_SIZES.attestedImgHeight });
   }
+
+  const uploadResult = await cloudinary.uploader.upload(outputPath, {
+  folder: 'apostille/verified',
+  resource_type: 'raw',
+  format: 'pdf'
+});
+
+// Return Cloudinary URL
+return uploadResult.secure_url;
+
 }
 
 async function processImage(pdfDoc, imagePath, signers) {
@@ -245,13 +255,5 @@ async function processImage(pdfDoc, imagePath, signers) {
   await applySignaturesToPDF(pdfDoc, signers);
 }
 
-const uploadResult = await cloudinary.uploader.upload(outputPath, {
-  folder: 'apostille/verified',
-  resource_type: 'raw',
-  format: 'pdf'
-});
-
-// Return Cloudinary URL
-return uploadResult.secure_url;
 
 module.exports = { processDocumentWithSignatures, processMultipleDocuments };
