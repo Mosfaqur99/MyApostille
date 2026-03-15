@@ -127,7 +127,7 @@ async function processDocumentWithSignatures(filePath, signers, certNumber = nul
   const ext = path.extname(filePath).toLowerCase();
   let pdfDoc;
   let originalFileName = path.basename(filePath);
-
+  try {
   if (ext === '.pdf') {
     const pdfBytes = fs.readFileSync(filePath);
     pdfDoc = await PDFDocument.load(pdfBytes);
@@ -144,6 +144,24 @@ async function processDocumentWithSignatures(filePath, signers, certNumber = nul
   const outputPath = path.join(outputDir, outputFileName);
   fs.writeFileSync(outputPath, await pdfDoc.save());
   return `verified/${outputFileName}`;
+
+  const uploadResult = await cloudinary.uploader.upload(outputPath, {
+      folder: 'apostille/verified',
+      public_id: `verified-${certNumber}-${Date.now()}`,
+      resource_type: 'raw',
+      format: 'pdf'
+    });
+    
+    // Clean up temp file
+    await fs.unlink(outputPath);
+    
+    // Return Cloudinary URL
+    return uploadResult.secure_url;
+    
+  } catch (error) {
+    console.error('Document processing error:', error);
+    throw error;
+  }
 }
 
 async function applySignaturesToPDF(pdfDoc, signers) {
@@ -234,14 +252,7 @@ async function drawSignatureBox(page, signer, x, baseY, boxWidth, sigWidth, sigH
     page.drawImage(attestedImg, { x: x + (boxWidth - imgW) / 2, y: currentY, width: imgW, height: TEXT_SIZES.attestedImgHeight });
   }
 
-  const uploadResult = await cloudinary.uploader.upload(outputPath, {
-  folder: 'apostille/verified',
-  resource_type: 'raw',
-  format: 'pdf'
-});
 
-// Return Cloudinary URL
-return uploadResult.secure_url;
 
 }
 
