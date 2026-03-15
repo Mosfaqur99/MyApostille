@@ -1,8 +1,10 @@
+// frontend/src/pages/VerificationPage.tsx
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
+import { toast } from 'react-toastify';
 
 const VerificationPage = () => {
   const { certificateNumber } = useParams();
@@ -11,59 +13,43 @@ const VerificationPage = () => {
   const [verificationData, setVerificationData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [certificateUrl, setCertificateUrl] = useState<string | null>(null);
-  const [processedFiles, setProcessedFiles] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"certificate" | "documents">("certificate");
 
- useEffect(() => {
-  let isMounted = true;
-  
-  const verifyCertificate = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get(`/files/verify/${certificateNumber}`);
-      
-      if (!isMounted) return;
-      setVerificationData(response.data);
-
-      // Cloudinary URLs are already full URLs - no construction needed
-      if (response.data.certificatePath) {
-        setCertificateUrl(response.data.certificatePath);  // Direct Cloudinary URL
+  useEffect(() => {
+    let isMounted = true;
+    
+    const verifyCertificate = async () => {
+      try {
+        setLoading(true);
+        const response = await api.get(`/files/verify/${certificateNumber}`);
+        
+        if (!isMounted) return;
+        
+        console.log('[VerificationPage] Data received:', response.data);
+        setVerificationData(response.data);
+        setLoading(false);
+      } catch (err: any) {
+        console.error("Verification failed", err);
+        setError(err.response?.data?.message || "সার্টিফিকেট পাওয়া যায়নি");
+        setLoading(false);
       }
+    };
 
-      if (response.data.reuploadedFiles?.length > 0) {
-        // These are already full Cloudinary URLs
-        setProcessedFiles(response.data.reuploadedFiles);
-      } else {
-        setProcessedFiles([]);
-      }
-
-      setLoading(false);
-    } catch (err: any) {
-      console.error("Verification failed", err);
-      setError(err.response?.data?.message || "সার্টিফিকেট পাওয়া যায়নি");
-      setLoading(false);
-    }
-  };
-
-  verifyCertificate();
-  return () => { isMounted = false; };
-}, [certificateNumber]);
+    verifyCertificate();
+    return () => { isMounted = false; };
+  }, [certificateNumber]);
 
   const handleDownloadCertificate = async () => {
-    if (!certificateUrl) return;
+    if (!verificationData?.certificatePath) {
+      toast.error('সার্টিফিকেট লিংক পাওয়া যায়নি');
+      return;
+    }
+    
     try {
-      const response = await fetch(certificateUrl);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `e-APOSTILLE-${certificateNumber}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      // Open Cloudinary URL directly in new tab for download
+      window.open(verificationData.certificatePath, '_blank');
     } catch {
-      alert("ডাউনলোড ব্যর্থ হয়েছে।");
+      toast.error("ডাউনলোড ব্যর্থ হয়েছে।");
     }
   };
 
@@ -71,7 +57,7 @@ const VerificationPage = () => {
    * PDF Viewer component for the main Certificate tab
    */
   const PDFViewer = ({ url }: { url: string }) => {
-    // Encodes URL to work with Google's PDF viewer proxy
+    // Google's PDF viewer proxy for Cloudinary URLs
     const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
 
     return (
@@ -80,7 +66,6 @@ const VerificationPage = () => {
           src={googleViewerUrl}
           title="Certificate Viewer"
           className="w-full h-[60vh] md:h-[75vh] border-none"
-          // This allows the iframe to stay contained
           style={{ width: '100%' }}
         />
       </div>
@@ -88,8 +73,7 @@ const VerificationPage = () => {
   };
 
   /**
-   * DOCUMENT VIEWER: Fixed for Mobile
-   * Uses <object> instead of <iframe> to prevent auto-opening new tabs on phones
+   * DOCUMENT VIEWER for reuploaded files
    */
   const DocumentViewer = ({ url }: { url: string }) => {
     const isPdf = url.toLowerCase().endsWith('.pdf');
@@ -98,31 +82,20 @@ const VerificationPage = () => {
       const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
       
       return (
-        <div className="w-full bg-gray-100 rounded-lg overflow-hidden border">
+        <div className="w-full bg-gray-100 rounded-lg overflow-hidden border mb-4">
           <div className="relative w-full h-[500px] md:h-[70vh]">
             <iframe
               src={googleViewerUrl}
               className="absolute top-0 left-0 w-full h-full"
               title="PDF Document"
             />
-            {/* Overlay button if the viewer fails to load or for better UX */}
-            {/* <div className="absolute bottom-4 right-4 md:hidden">
-               <a 
-                href={url} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="bg-white/90 backdrop-blur shadow-md text-blue-600 px-3 py-1 rounded-full text-xs font-bold border border-blue-100"
-              >
-                পার্থক্য থাকলে এখানে দেখুন ↗
-              </a>
-            </div> */}
           </div>
         </div>
       );
     }
 
     return (
-      <div className="flex justify-center bg-gray-200 rounded-lg overflow-hidden">
+      <div className="flex justify-center bg-gray-200 rounded-lg overflow-hidden mb-4">
         <img
           src={url}
           alt="Verified Document"
@@ -144,7 +117,9 @@ const VerificationPage = () => {
         <div className="text-red-500 text-5xl mb-4">⚠️</div>
         <h2 className="text-xl font-bold mb-2">যাচাই ব্যর্থ</h2>
         <p className="text-gray-600 mb-6">{error}</p>
-        <button onClick={() => navigate("/")} className="w-full bg-green-600 text-white py-2 rounded-lg">হোম পেজে ফিরে যান</button>
+        <button onClick={() => navigate("/")} className="w-full bg-green-600 text-white py-2 rounded-lg">
+          হোম পেজে ফিরে যান
+        </button>
       </div>
     </div>
   );
@@ -164,7 +139,11 @@ const VerificationPage = () => {
               </div>
               <div className="mt-4 md:mt-0 text-left md:text-right">
                 <p className="text-xs text-gray-400 uppercase">যাচাইয়ের তারিখ</p>
-                <p className="font-bold">{verificationData?.verifiedAt ? new Date(verificationData.verifiedAt).toLocaleDateString('bn-BD') : 'N/A'}</p>
+                <p className="font-bold">
+                  {verificationData?.verifiedAt 
+                    ? new Date(verificationData.verifiedAt).toLocaleDateString('bn-BD') 
+                    : 'N/A'}
+                </p>
               </div>
             </div>
             
@@ -193,17 +172,20 @@ const VerificationPage = () => {
                 onClick={() => setActiveTab("documents")}
                 className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-all ${activeTab === "documents" ? "bg-white shadow-sm text-blue-700" : "text-gray-500"}`}
               >
-                📂 মূল নথি ({processedFiles.length})
+                📂 মূল নথি ({verificationData?.reuploadedFiles?.length || 0})
               </button>
             </div>
 
             <div className="p-4 md:p-6">
               {activeTab === "certificate" ? (
                 <div className="space-y-6">
-                  {certificateUrl ? (
+                  {verificationData?.certificatePath ? (
                     <>
-                      <PDFViewer url={certificateUrl} />
-                      <button onClick={handleDownloadCertificate} className="w-full bg-green-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-green-700 transition-colors shadow-lg shadow-green-100">
+                      <PDFViewer url={verificationData.certificatePath} />
+                      <button 
+                        onClick={handleDownloadCertificate} 
+                        className="w-full bg-green-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-green-700 transition-colors shadow-lg shadow-green-100"
+                      >
                         📥 সার্টিফিকেট ডাউনলোড করুন
                       </button>
                     </>
@@ -213,15 +195,16 @@ const VerificationPage = () => {
                 </div>
               ) : (
                 <div className="space-y-8">
-                  {processedFiles.length > 0 ? processedFiles.map((url, i) => (
-                    <div key={i} className="space-y-3">
-                      {/* <div className="flex items-center justify-between px-1">
-                         <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">নথি {i + 1}</span>
-                         <a href={url} download className="text-blue-600 text-xs font-bold">ডাউনলোড</a>
-                      </div> */}
-                      <DocumentViewer url={url} />
-                    </div>
-                  )) : (
+                  {verificationData?.reuploadedFiles?.length > 0 ? (
+                    verificationData.reuploadedFiles.map((url: string, i: number) => (
+                      <div key={i} className="space-y-3">
+                        <div className="flex items-center justify-between px-1">
+                           <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">নথি {i + 1}</span>
+                        </div>
+                        <DocumentViewer url={url} />
+                      </div>
+                    ))
+                  ) : (
                     <div className="py-20 text-center text-gray-400">কোনো মূল নথি পাওয়া যায়নি</div>
                   )}
                 </div>
