@@ -76,15 +76,22 @@ const VerificationPage = () => {
   /**
    * PDF Viewer component for the main Certificate tab
    */
-  const PDFViewer = ({ url }: { url: string }) => (
-    <div className="w-full border rounded-lg overflow-hidden bg-white shadow-inner">
-      <iframe
-        src={`${url}#toolbar=0&navpanes=0&view=FitH`}
-        title="Certificate Viewer"
-        className="w-full h-[60vh] md:h-[75vh]"
-      />
-    </div>
-  );
+  const PDFViewer = ({ url }: { url: string }) => {
+    // Encodes URL to work with Google's PDF viewer proxy
+    const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
+
+    return (
+      <div className="w-full border rounded-lg overflow-hidden bg-white shadow-inner">
+        <iframe
+          src={googleViewerUrl}
+          title="Certificate Viewer"
+          className="w-full h-[60vh] md:h-[75vh] border-none"
+          // This allows the iframe to stay contained
+          style={{ width: '100%' }}
+        />
+      </div>
+    );
+  };
 
   /**
    * DOCUMENT VIEWER: Fixed for Mobile
@@ -94,26 +101,28 @@ const VerificationPage = () => {
     const isPdf = url.toLowerCase().endsWith('.pdf');
 
     if (isPdf) {
+      const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
+      
       return (
         <div className="w-full bg-gray-100 rounded-lg overflow-hidden border">
-          <object
-            data={`${url}#view=FitH`}
-            type="application/pdf"
-            className="w-full h-[500px] md:h-[70vh]"
-          >
-            {/* Fallback for mobile browsers that can't embed */}
-            <div className="p-8 text-center bg-white">
-              <p className="text-gray-600 mb-4">ডকুমেন্টটি সরাসরি দেখা যাচ্ছে না</p>
-              <a 
+          <div className="relative w-full h-[500px] md:h-[70vh]">
+            <iframe
+              src={googleViewerUrl}
+              className="absolute top-0 left-0 w-full h-full"
+              title="PDF Document"
+            />
+            {/* Overlay button if the viewer fails to load or for better UX */}
+            {/* <div className="absolute bottom-4 right-4 md:hidden">
+               <a 
                 href={url} 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="inline-block bg-blue-600 text-white px-6 py-2 rounded font-bold"
+                className="bg-white/90 backdrop-blur shadow-md text-blue-600 px-3 py-1 rounded-full text-xs font-bold border border-blue-100"
               >
-                এখানে ক্লিক করে দেখুন
+                পার্থক্য থাকলে এখানে দেখুন ↗
               </a>
-            </div>
-          </object>
+            </div> */}
+          </div>
         </div>
       );
     }
@@ -212,10 +221,10 @@ const VerificationPage = () => {
                 <div className="space-y-8">
                   {processedFiles.length > 0 ? processedFiles.map((url, i) => (
                     <div key={i} className="space-y-3">
-                      <div className="flex items-center justify-between px-1">
+                      {/* <div className="flex items-center justify-between px-1">
                          <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">নথি {i + 1}</span>
                          <a href={url} download className="text-blue-600 text-xs font-bold">ডাউনলোড</a>
-                      </div>
+                      </div> */}
                       <DocumentViewer url={url} />
                     </div>
                   )) : (
