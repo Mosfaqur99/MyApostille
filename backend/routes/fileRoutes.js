@@ -322,6 +322,7 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 // GET /verify/:certificateNumber - PUBLIC verification endpoint
 // Get verification details by certificate number
 // Get verification details by certificate number
+// GET /verify/:certificateNumber - UPDATED for image display
 router.get('/verify/:certificateNumber', async (req, res) => {
   try {
     const { certificateNumber } = req.params;
@@ -347,9 +348,9 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 
     const upload = result.rows[0];
     
-    // Parse JSON fields safely
     let certificateData = {};
-    let reuploadedFiles = [];
+    let originalFiles = [];
+    let signaturesData = [];
     
     try {
       if (upload.certificate_data) {
@@ -362,29 +363,49 @@ router.get('/verify/:certificateNumber', async (req, res) => {
     }
     
     try {
-      if (upload.reuploaded_file_paths) {
-        reuploadedFiles = typeof upload.reuploaded_file_paths === 'string'
-          ? JSON.parse(upload.reuploaded_file_paths)
-          : upload.reuploaded_file_paths;
+      if (upload.file_paths) {
+        originalFiles = typeof upload.file_paths === 'string'
+          ? JSON.parse(upload.file_paths)
+          : upload.file_paths;
       }
     } catch (e) {
-      console.warn('[Verify] Failed to parse reuploaded_file_paths:', e.message);
+      console.warn('[Verify] Failed to parse file_paths:', e.message);
+    }
+    
+    try {
+      if (upload.additional_signatures_data) {
+        signaturesData = typeof upload.additional_signatures_data === 'string'
+          ? JSON.parse(upload.additional_signatures_data)
+          : upload.additional_signatures_data;
+      }
+    } catch (e) {
+      console.warn('[Verify] Failed to parse additional_signatures_data:', e.message);
     }
 
-    // Return data in the EXACT format expected by VerificationPage.tsx
+    // Build documents array with original URLs and signer info
+    const documents = originalFiles.map((file, index) => {
+      const fileUrl = typeof file === 'object' ? file.path : file;
+      return {
+        url: fileUrl,
+        originalName: typeof file === 'object' ? file.original_name : `Document ${index + 1}`,
+        signers: signaturesData.map(signer => ({
+          name: signer.name,
+          designation: signer.designation,
+          organization: signer.organization,
+          signature_image: signer.signature_image,
+          signatureDate: signer.signatureDate || upload.verified_at
+        }))
+      };
+    });
+
     const responseData = {
-      // REQUIRED FIELDS for VerificationPage:
       certificateNumber: upload.certificate_number,
-      certificatePath: upload.certificate_pdf_path,  // Cloudinary URL to certificate PDF
-      reuploadedFiles: reuploadedFiles,  // Array of Cloudinary URLs
-      
-      // Display fields:
+      certificatePath: upload.certificate_pdf_path,
+      documents: documents,
       userName: upload.user_name,
       userEmail: upload.user_email,
       verifiedByName: upload.verified_by_name,
       verifiedAt: upload.verified_at,
-      
-      // Certificate details:
       documentIssuer: certificateData.documentIssuer || certificateData.actingCapacity || 'N/A',
       documentLocation: certificateData.documentLocation || 'Dhaka',
       certificateLocation: certificateData.certificateLocation || 'Dhaka',
@@ -392,7 +413,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
       authorityName: certificateData.authorityName || 'MD. ASIF KHAN PRANTO'
     };
 
-    console.log('[Verify] Returning data:', JSON.stringify(responseData, null, 2));
+    console.log('[Verify] Returning data with', documents.length, 'documents');
     res.json(responseData);
     
   } catch (err) {
@@ -405,6 +426,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 // POST /verify/:id - CLOUDINARY VERSION
 router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.array('reuploadedFiles', 10), async (req, res) => {
   const uploadId = req.params.id;
+  const { generateCertificatePDF, processDocumentsForVerification } = require('../utils/documentProcessor');
   console.log('🔍 Verify endpoint called for upload:', uploadId);
   
   const client = await pool.connect();
@@ -501,61 +523,45 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.a
       }
     }
 
-    // Step 5: Process documents with signatures
-    console.log('🔍 Processing documents...');
-    let reuploadedUrls = [];
+    let originalFiles = [];
+try {
+  originalFiles = typeof upload.file_paths === 'string' 
+    ? JSON.parse(upload.file_paths) 
+    : upload.file_paths;
+} catch (e) {
+  console.warn('⚠️ Failed to parse original file paths:', e.message);
+}
 
-    for (const file of req.files) {
-      try {
-        // Check if processDocumentWithSignatures exists
-        if (typeof processDocumentWithSignatures !== 'function') {
-          throw new Error('processDocumentWithSignatures is not a function');
-        }
+const processedDocs = await processDocumentsForVerification(
+  originalFiles,
+  signersWithDates,
+  certNumber
+);
 
-        // file.path is now a Cloudinary URL - we need to download it first or modify processor
-        // For now, assume processDocumentWithSignatures handles URLs or modify it
-        const processedUrl = await processDocumentWithSignatures(
-          file.path,  // Cloudinary URL
-          signersWithDates,
-          certNumber
-        );
-        
-        reuploadedUrls.push(processedUrl);
-        console.log('✅ File processed:', processedUrl);
-      } catch (procErr) {
-        console.error('⚠️ File processing failed:', file.originalname, procErr.message);
-        throw procErr;
-      }
-    }
+// Step 6: UPDATE DATABASE
+const updateQuery = `
+  UPDATE uploads 
+  SET status = 'verified',
+      certificate_number = $1,
+      certificate_pdf_path = $2,
+      certificate_data = $3,
+      reuploaded_file_paths = $4,
+      additional_signatures_data = $5,
+      verified_by = $6,
+      verified_at = CURRENT_TIMESTAMP
+  WHERE id = $7
+  RETURNING *
+`;
 
-    // Step 6: UPDATE DATABASE
-    console.log('💾 Saving to database...');
-    const updateQuery = `
-      UPDATE uploads 
-      SET status = 'verified',
-          certificate_number = $1,
-          certificate_pdf_path = $2,
-          certificate_data = $3,
-          reuploaded_file_paths = $4,
-          additional_signatures_data = $5,
-          verified_by = $6,
-          verified_at = CURRENT_TIMESTAMP
-      WHERE id = $7
-      RETURNING *
-    `;
-
-    const updateResult = await client.query(updateQuery, [
-      certNumber,
-      certUrl,  // Cloudinary URL
-      JSON.stringify(certificateData),
-      JSON.stringify(reuploadedUrls),  // Cloudinary URLs
-      JSON.stringify(signaturesData),
-      req.user.id,
-      uploadId
-    ]);
-
-    await client.query('COMMIT');
-    console.log('✅ Database updated:', updateResult.rows[0].id);
+const updateResult = await client.query(updateQuery, [
+  certNumber,
+  certUrl,
+  JSON.stringify(certificateData),
+  JSON.stringify(processedDocs),  // Now stores document metadata
+  JSON.stringify(signaturesData),
+  req.user.id,
+  uploadId
+]);
 
     // Step 7: Cleanup - delete original files from Cloudinary (optional)
     if (upload.file_paths) {

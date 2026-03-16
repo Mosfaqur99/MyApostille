@@ -6,20 +6,42 @@ import Header from "../components/Header";
 import Footer from "../components/Footer";
 import { toast } from 'react-toastify';
 
+interface SignerData {
+  name: string;
+  designation: string;
+  organization: string;
+  signature_image: string;
+  signatureDate: string;
+}
+
+interface DocumentData {
+  url: string;
+  originalName: string;
+  signers: SignerData[];
+}
+
+interface VerificationData {
+  certificateNumber: string;
+  certificatePath: string;
+  documents: DocumentData[];
+  userName: string;
+  userEmail: string;
+  verifiedByName: string;
+  verifiedAt: string;
+  authorityName: string;
+}
+
 const VerificationPage = () => {
   const { certificateNumber } = useParams();
   const navigate = useNavigate();
 
-  const [verificationData, setVerificationData] = useState<any>(null);
+  const [verificationData, setVerificationData] = useState<VerificationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"certificate" | "documents">("certificate");
   
-  // Use a Map to track fetched certificates across component lifecycles
   const fetchedCerts = useRef<Set<string>>(new Set());
   const abortController = useRef<AbortController | null>(null);
 
-  // Helper to make PDF viewable in browser
   const getViewablePdfUrl = (url: string) => {
     if (!url) return '';
     if (url.includes('cloudinary.com')) {
@@ -36,16 +58,13 @@ const VerificationPage = () => {
       return;
     }
 
-    // Deduplication: Check if already fetching/fetched this certificate
     if (fetchedCerts.current.has(certificateNumber)) {
       console.log('[VerificationPage] Already fetched or fetching:', certificateNumber);
       return;
     }
 
-    // Mark as fetched immediately (before async)
     fetchedCerts.current.add(certificateNumber);
     
-    // Cancel any in-flight request
     if (abortController.current) {
       abortController.current.abort();
     }
@@ -68,7 +87,6 @@ const VerificationPage = () => {
 
       setVerificationData(response.data);
     } catch (err: any) {
-      // Don't treat abort as error
       if (err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
         console.log('[VerificationPage] Request cancelled');
         return;
@@ -76,8 +94,6 @@ const VerificationPage = () => {
       
       console.error("Verification failed", err);
       setError(err.response?.data?.message || err.message || "সার্টিফিকেট পাওয়া যায়নি");
-      
-      // Remove from fetched set on error so retry works
       fetchedCerts.current.delete(certificateNumber);
     } finally {
       setLoading(false);
@@ -86,8 +102,6 @@ const VerificationPage = () => {
 
   useEffect(() => {
     fetchData();
-    
-    // Cleanup: abort in-flight request on unmount
     return () => {
       if (abortController.current) {
         abortController.current.abort();
@@ -95,7 +109,6 @@ const VerificationPage = () => {
     };
   }, [fetchData]);
 
-  // Reset fetched set when certificateNumber changes (navigation)
   useEffect(() => {
     fetchedCerts.current.clear();
   }, [certificateNumber]);
@@ -109,8 +122,16 @@ const VerificationPage = () => {
     toast.success('সার্টিফিকেট ডাউনলোড শুরু হয়েছে!');
   };
 
-  // ... rest of your component (loading, error, success states) remains the same
-  // LOADING STATE
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col bg-gray-100">
@@ -126,7 +147,6 @@ const VerificationPage = () => {
     );
   }
 
-  // ERROR STATE
   if (error) {
     return (
       <div className="min-h-screen flex flex-col bg-gray-100">
@@ -152,7 +172,6 @@ const VerificationPage = () => {
     );
   }
 
-  // NO DATA STATE
   if (!verificationData) {
     return (
       <div className="min-h-screen flex flex-col bg-gray-100">
@@ -176,20 +195,18 @@ const VerificationPage = () => {
     );
   }
 
-  // SUCCESS - MAIN CONTENT
   const hasCertificate = !!verificationData.certificatePath;
-  const hasDocuments = Array.isArray(verificationData.reuploadedFiles) && verificationData.reuploadedFiles.length > 0;
-  
+  const hasDocuments = Array.isArray(verificationData.documents) && verificationData.documents.length > 0;
   const viewableCertificateUrl = getViewablePdfUrl(verificationData.certificatePath);
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
       <Header />
       <main className="flex-grow container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-4xl mx-auto space-y-8">
           
           {/* Header Card */}
-          <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-green-100">
+          <div className="bg-white rounded-2xl shadow-sm p-6 border border-green-100">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
               <div>
                 <h1 className="text-2xl font-black text-green-800 flex items-center gap-2">
@@ -201,7 +218,7 @@ const VerificationPage = () => {
                 <p className="text-gray-500 font-mono mt-2 text-lg">নম্বর: {certificateNumber}</p>
               </div>
               <div className="mt-4 md:mt-0 text-left md:text-right bg-green-50 px-4 py-2 rounded-lg">
-                <p className="text-xs text-gray-500 uppercase font-bold">যাচাইয়ের তারিখ</p>
+                <p className="text-xs text-gray-500 uppercase font-bold">যাচাইয়ের তারিখ</p>
                 <p className="font-bold text-green-800">
                   {verificationData.verifiedAt 
                     ? new Date(verificationData.verifiedAt).toLocaleDateString('bn-BD') 
@@ -223,123 +240,143 @@ const VerificationPage = () => {
             </div>
           </div>
 
-          {/* Tabs */}
-          <div className="bg-white rounded-2xl shadow-sm overflow-hidden mb-6">
-            <div className="flex bg-gray-50 p-2">
-              <button
-                onClick={() => setActiveTab("certificate")}
-                className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-all ${
-                  activeTab === "certificate" 
-                    ? "bg-white shadow-md text-green-700 ring-2 ring-green-100" 
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                📜 সার্টিফিকেট
-              </button>
-              <button
-                onClick={() => setActiveTab("documents")}
-                className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-all ${
-                  activeTab === "documents" 
-                    ? "bg-white shadow-md text-blue-700 ring-2 ring-blue-100" 
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                📂 মূল নথি ({verificationData.reuploadedFiles?.length || 0})
-              </button>
-            </div>
-
-            <div className="p-4 md:p-6">
-              {activeTab === "certificate" ? (
-                <div className="space-y-6">
-                  {hasCertificate ? (
-                    <>
-                      <div className="w-full border-2 border-gray-200 rounded-xl overflow-hidden bg-white shadow-inner">
-                        <object
-                          data={viewableCertificateUrl}
-                          type="application/pdf"
-                          className="w-full h-[60vh] md:h-[75vh]"
-                        >
-                          <div className="p-8 text-center text-gray-500">
-                            <p className="mb-4 text-lg">PDF ভিউয়ার লোড করা যাচ্ছে না</p>
-                            <p className="text-sm mb-4">ব্রাউজার সাপোর্টের সমস্যা হতে পারে</p>
-                            <a 
-                              href={verificationData.certificatePath} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                            >
-                              <span>নতুন ট্যাবে খুলুন</span>
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                              </svg>
-                            </a>
-                          </div>
-                        </object>
-                      </div>
-                      
-                      <button 
-                        onClick={handleDownloadCertificate} 
-                        className="w-full bg-green-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-green-700 transition-all duration-300 shadow-lg hover:shadow-xl flex items-center justify-center gap-3"
+          {/* E-Apostille Certificate Section */}
+          {hasCertificate && (
+            <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
+              <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+                <h2 className="text-lg font-bold text-gray-800">ই-আপোস্টিল সার্টিফিকেট</h2>
+              </div>
+              <div className="p-6">
+                <div className="w-full border-2 border-gray-200 rounded-xl overflow-hidden bg-white shadow-inner">
+                  <object
+                    data={viewableCertificateUrl}
+                    type="application/pdf"
+                    className="w-full h-[60vh] md:h-[75vh]"
+                  >
+                    <div className="p-8 text-center text-gray-500">
+                      <p className="mb-4 text-lg">PDF ভিউয়ার লোড করা যাচ্ছে না</p>
+                      <p className="text-sm mb-4">ব্রাউজার সাপোর্টের সমস্যা হতে পারে</p>
+                      <a 
+                        href={verificationData.certificatePath} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                       >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        <span>নতুন ট্যাবে খুলুন</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                         </svg>
-                        📥 সার্টিফিকেট ডাউনলোড করুন
-                      </button>
-                    </>
-                  ) : (
-                    <div className="py-20 text-center text-red-500 bg-red-50 rounded-xl">
-                      <p className="text-xl font-bold">❌ সার্টিফিকেট পাওয়া যায়নি</p>
+                      </a>
                     </div>
-                  )}
+                  </object>
                 </div>
-              ) : (
-                <div className="space-y-6">
-                  {hasDocuments ? (
-                    verificationData.reuploadedFiles.map((url: string, i: number) => (
-                      <div key={i} className="border-2 border-gray-200 rounded-xl overflow-hidden">
-                        <div className="bg-gray-100 px-4 py-3 border-b-2 border-gray-200 flex justify-between items-center">
-                          <span className="font-bold text-gray-700">নথি {i + 1}</span>
-                          <a 
-                            href={url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-sm text-blue-600 hover:underline font-medium"
-                          >
-                            নতুন ট্যাবে খুলুন ↗
-                          </a>
+                
+                <button 
+                  onClick={handleDownloadCertificate} 
+                  className="w-full mt-6 bg-green-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-green-700 transition-all duration-300 shadow-lg hover:shadow-xl flex items-center justify-center gap-3"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  📥 সার্টিফিকেট ডাউনলোড করুন
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Attested Documents Section */}
+          {hasDocuments && (
+            <div className="space-y-6">
+              <div className="border-b-2 border-green-600 pb-2">
+                <h2 className="text-xl font-bold text-gray-800">স্বাক্ষরিত মূল নথিসমূহ</h2>
+                <p className="text-sm text-gray-600 mt-1">নিচের নথিগুলি আপোস্টিল করা হয়েছে</p>
+              </div>
+
+              {verificationData.documents.map((doc, index) => (
+                <div key={index} className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
+                  {/* Document Image */}
+                  <div className="p-4 bg-gray-50">
+                    <div className="bg-white rounded-lg overflow-hidden shadow-inner">
+                      {doc.url.toLowerCase().endsWith('.pdf') ? (
+                        <iframe
+                          src={`https://docs.google.com/viewer?url=${encodeURIComponent(doc.url)}&embedded=true`}
+                          className="w-full h-[600px] border-none"
+                          title={`Document ${index + 1}`}
+                        />
+                      ) : (
+                        <img
+                          src={doc.url}
+                          alt={`Document ${index + 1}`}
+                          className="w-full h-auto object-contain"
+                          onError={(e) => {
+                            console.error('Image failed to load:', doc.url);
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Signature Block - Below the image */}
+                  <div className="px-6 py-6 bg-white border-t border-gray-200">
+                    {doc.signers?.map((signer, signerIndex) => (
+                      <div key={signerIndex} className="flex flex-col items-start space-y-2">
+                        {/* Attested Text */}
+                        <div className="text-purple-800 font-serif italic text-lg">
+                          Attested
                         </div>
-                        <div className="p-4 bg-gray-50">
-                          {url.toLowerCase().endsWith('.pdf') ? (
-                            <iframe
-                              src={`https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`}
-                              className="w-full h-[500px] border-none"
-                              title={`Document ${i + 1}`}
-                            />
-                          ) : (
-                            <img
-                              src={url}
-                              alt={`Document ${i + 1}`}
-                              className="max-w-full h-auto mx-auto rounded-lg shadow-md"
+                        
+                        {/* Date */}
+                        <div className="text-gray-700 text-sm">
+                          {formatDate(signer.signatureDate)}
+                        </div>
+                        
+                        {/* Signature Image */}
+                        {signer.signature_image && (
+                          <div className="my-2">
+                            <img 
+                              src={`/assets/signatures/documents/${signer.signature_image}`}
+                              alt="Signature"
+                              className="h-12 w-auto object-contain"
                               onError={(e) => {
-                                console.error('Image failed to load:', url);
                                 (e.target as HTMLImageElement).style.display = 'none';
                               }}
                             />
-                          )}
+                          </div>
+                        )}
+                        
+                        {/* Signer Name - Bold */}
+                        <div className="font-bold text-gray-900 text-base">
+                          {signer.name}
                         </div>
+                        
+                        {/* Designation */}
+                        {signer.designation && (
+                          <div className="text-gray-700 text-sm">
+                            {signer.designation}
+                          </div>
+                        )}
+                        
+                        {/* Organization */}
+                        {signer.organization && (
+                          <div className="text-gray-600 text-sm">
+                            {signer.organization}
+                          </div>
+                        )}
                       </div>
-                    ))
-                  ) : (
-                    <div className="py-20 text-center text-gray-500 bg-gray-50 rounded-xl">
-                      <div className="text-6xl mb-4">📭</div>
-                      <p className="text-xl">কোনো মূল নথি পাওয়া যায়নি</p>
-                    </div>
-                  )}
+                    ))}
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
-          </div>
+          )}
+
+          {!hasDocuments && (
+            <div className="bg-white rounded-2xl shadow-sm p-12 text-center text-gray-500 border border-gray-200">
+              <div className="text-6xl mb-4">📭</div>
+              <p className="text-xl">কোনো মূল নথি পাওয়া যায়নি</p>
+            </div>
+          )}
 
           <button 
             onClick={() => navigate(-1)} 
