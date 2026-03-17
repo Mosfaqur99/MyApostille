@@ -324,12 +324,12 @@ router.get('/verify/:certificateNumber', async (req, res) => {
     try {
         const { certificateNumber } = req.params;
         
-        // Get upload with user info
+        // Get upload with user info - FIXED: use 'name' instead of 'full_name'
         const uploadQuery = `
             SELECT u.*, 
-                   usr.full_name as user_name, 
+                   usr.name as user_name, 
                    usr.email as user_email,
-                   verifier.full_name as verified_by_name
+                   verifier.name as verified_by_name
             FROM uploads u
             JOIN users usr ON u.user_id = usr.id
             LEFT JOIN users verifier ON u.verified_by = verifier.id
@@ -346,40 +346,78 @@ router.get('/verify/:certificateNumber', async (req, res) => {
         
         // Parse additional_signatures_data JSONB to get signers
         let signers = [];
-        if (upload.additional_signatures_data && Array.isArray(upload.additional_signatures_data)) {
-            signers = upload.additional_signatures_data.map(sig => ({
-                id: sig.signerId || sig.id,
-                name: sig.name,
-                designation: sig.designation,
-                organization: sig.organization,
-                signature_image: sig.signature_image || sig.signatureImage,
-                signatureDate: sig.date || sig.signatureDate
-            }));
+        if (upload.additional_signatures_data) {
+            try {
+                const sigData = typeof upload.additional_signatures_data === 'string' 
+                    ? JSON.parse(upload.additional_signatures_data) 
+                    : upload.additional_signatures_data;
+                
+                if (Array.isArray(sigData)) {
+                    signers = sigData.map(sig => ({
+                        id: sig.id || sig.signerId,
+                        name: sig.name,
+                        designation: sig.designation,
+                        organization: sig.organization,
+                        signature_image: sig.signature_image || sig.signatureImage,
+                        signatureDate: sig.signatureDate || sig.date || upload.certificate_date
+                    }));
+                }
+            } catch (e) {
+                console.warn('Failed to parse additional_signatures_data:', e.message);
+            }
         }
         
-        // Build documents array from reuploaded files or original files
+        // Build documents array from reuploaded files
         let documents = [];
         
-        // Check if there are reuploaded files with stamps/signatures
-        if (upload.reuploaded_file_paths && Array.isArray(upload.reuploaded_file_paths) && upload.reuploaded_file_paths.length > 0) {
-            documents = upload.reuploaded_file_paths.map((path, index) => ({
-                url: path,
-                originalName: `Document ${index + 1}`,
-                fileType: 'image/jpeg', // or detect from path
-                signers: signers // All signers appear on each document
-            }));
-        } 
+        if (upload.reuploaded_file_paths) {
+            try {
+                const reuploaded = typeof upload.reuploaded_file_paths === 'string'
+                    ? JSON.parse(upload.reuploaded_file_paths)
+                    : upload.reuploaded_file_paths;
+                
+                if (Array.isArray(reuploaded) && reuploaded.length > 0) {
+                    documents = reuploaded.map((path, index) => ({
+                        url: path,
+                        originalName: `Document ${index + 1}`,
+                        fileType: 'image/jpeg',
+                        signers: signers
+                    }));
+                }
+            } catch (e) {
+                console.warn('Failed to parse reuploaded_file_paths:', e.message);
+            }
+        }
+        
         // Fallback to original files if no reuploaded files
-        else if (upload.file_paths && Array.isArray(upload.file_paths) && upload.file_paths.length > 0) {
-            documents = upload.file_paths.map((path, index) => ({
-                url: path,
-                originalName: upload.original_filename || `Document ${index + 1}`,
-                fileType: upload.file_type,
-                signers: signers
-            }));
-        } 
-        // Single file fallback
-        else if (upload.file_path) {
+        if (documents.length === 0 && upload.file_paths) {
+            try {
+                const files = typeof upload.file_paths === 'string'
+                    ? JSON.parse(upload.file_paths)
+                    : upload.file_paths;
+                
+                if (Array.isArray(files)) {
+                    documents = files.map((path, index) => ({
+                        url: path,
+                        originalName: upload.original_filename || `Document ${index + 1}`,
+                        fileType: upload.file_type,
+                        signers: signers
+                    }));
+                } else if (files) {
+                    documents = [{
+                        url: files,
+                        originalName: upload.original_filename,
+                        fileType: upload.file_type,
+                        signers: signers
+                    }];
+                }
+            } catch (e) {
+                console.warn('Failed to parse file_paths:', e.message);
+            }
+        }
+        
+        // Final fallback to single file_path
+        if (documents.length === 0 && upload.file_path) {
             documents = [{
                 url: upload.file_path,
                 originalName: upload.original_filename,
@@ -390,7 +428,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 
         res.json({
             certificateNumber: upload.certificate_number,
-            certificatePath: upload.certificate_pdf_path || upload.certificate_data?.pdfUrl,
+            certificatePath: upload.certificate_pdf_path,
             userName: upload.user_name,
             userEmail: upload.user_email,
             verifiedByName: upload.verified_by_name,
