@@ -62,7 +62,7 @@ const VerificationPage = () => {
 
   // Helper to get attested image URL
   const getAttestedImageUrl = () => {
-  return `${API_URL}/signatures/documents/attested_text.png`;
+  return `${API_URL}/signatures/attested_text.png`;
 };
   const fetchData = useCallback(async () => {
     if (!certificateNumber) {
@@ -304,87 +304,65 @@ const VerificationPage = () => {
                   </div>
 
                   {/* Signature Blocks - Centered Layout */}
-                  {doc.signers && doc.signers.length > 0 && (
-                    <div className="px-6 py-8 bg-white border-t border-gray-200">
-                      <div className="flex flex-wrap justify-center gap-8">
-                        {doc.signers.map((signer, signerIndex) => (
-                          <div 
-                            key={signerIndex} 
-                            className="flex flex-col items-center text-center min-w-[200px] max-w-[250px]"
-                          >
-                            {/* Attested Image */}
-                            <div className="mb-2">
-                              <img 
-                                src={getAttestedImageUrl()}
-                                alt="Attested"
-                                className="h-8 w-auto object-contain"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).style.display = 'none';
-                                  const parent = (e.target as HTMLImageElement).parentElement;
-                                  if (parent) {
-                                    parent.innerHTML = '<span class="text-purple-800 font-serif italic text-lg font-semibold">Attested</span>';
-                                  }
-                                }}
-                              />
-                            </div>
-                            
-                            {/* Date */}
-                            <div className="text-gray-600 text-sm mb-3 font-medium">
-                              {formatDate(signer.signatureDate)}
-                            </div>
-                            
-                            {/* Signature Image */}
-                            {signer.signature_image && (
-  <div className="mb-3 h-16 flex items-center justify-center border border-gray-200 rounded bg-gray-50">
-    <img 
-      src={getSignatureImageUrl(signer.signature_image)}
-      alt={`${signer.name} signature`}
-      className="h-14 w-auto object-contain"
-      onError={(e) => {
-        const imgUrl = (e.target as HTMLImageElement).src;
-        console.error('❌ Signature image failed to load:', {
-          signerName: signer.name,
-          signatureImage: signer.signature_image,
-          generatedUrl: imgUrl,
-          apiUrl: API_URL
-        });
-        (e.target as HTMLImageElement).style.display = 'none';
-        // Show fallback
-        const parent = (e.target as HTMLImageElement).parentElement;
-        if (parent) {
-          parent.innerHTML = `<span class="text-red-500 text-xs">Failed: ${signer.signature_image}</span>`;
-        }
-      }}
-      onLoad={() => {
-        console.log('✅ Signature loaded:', signer.signature_image);
-      }}
-    />
+                  {/* Signature Blocks - Responsive Grid */}
+{doc.signers && doc.signers.length > 0 && (
+  <div className="px-6 py-10 bg-white border-t border-gray-200">
+    {/* Grid: 1 col on mobile, 2 cols on tablet/PC with a gap */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-y-12 gap-x-8 justify-items-center">
+      {doc.signers.map((signer, signerIndex) => (
+        <div 
+          key={signerIndex} 
+          className="flex flex-col items-center text-center w-full max-w-[320px]"
+        >
+          {/* 1. "Attested" Image */}
+          <div className="mb-2">
+            <img 
+              src={getAttestedImageUrl()}
+              alt="Attested"
+              className="h-10 w-auto object-contain"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+                if (target.parentElement) {
+                  target.parentElement.innerHTML = '<span style="color: #4c1d95; font-family: serif; font-size: 1.5rem; font-style: italic; font-weight: 700;">Attested</span>';
+                }
+              }}
+            />
+          </div>
+          
+          {/* 2. Signature Image */}
+          <div className="h-16 flex items-center justify-center mb-2">
+            {signer.signature_image ? (
+              <img 
+                src={getSignatureImageUrl(signer.signature_image)}
+                alt={`${signer.name} signature`}
+                className="max-h-16 w-auto object-contain mix-blend-multiply"
+              />
+            ) : (
+              <div className="h-16" /> // Spacer if no signature
+            )}
+          </div>
+          
+          {/* 3. Date - Matches your image purple */}
+          <div className="text-[#4c1d95] text-lg font-semibold mb-1">
+            {formatDate(signer.signatureDate)}
+          </div>
+          
+          {/* 4. Name - Bold Purple */}
+          <div className="font-bold text-[#4c1d95] text-xl leading-tight mb-1">
+            {signer.name}
+          </div>
+          
+          {/* 5. Designation & Org */}
+          <div className="text-[#4c1d95] text-lg leading-snug">
+            <p>{signer.designation}</p>
+            <p>{signer.organization}</p>
+          </div>
+        </div>
+      ))}
+    </div>
   </div>
 )}
-                            
-                            {/* Signer Name - Purple and Bold */}
-                            <div className="font-bold text-purple-900 text-base mb-1">
-                              {signer.name}
-                            </div>
-                            
-                            {/* Designation */}
-                            {signer.designation && (
-                              <div className="text-gray-700 text-sm mb-0.5">
-                                {signer.designation}
-                              </div>
-                            )}
-                            
-                            {/* Organization */}
-                            {signer.organization && (
-                              <div className="text-gray-600 text-sm">
-                                {signer.organization}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
