@@ -37,9 +37,10 @@ app.use(cors({
 
 app.options('*', cors());
 
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
+app.use('/assets', express.static(path.join(__dirname, 'assets')));
 // ==========================================
 // DIRECTORY SETUP - CRITICAL FIX
 // ==========================================
@@ -47,24 +48,24 @@ const isRender = process.env.RENDER === 'true' || !!process.env.RENDER_EXTERNAL_
 const uploadBaseDir = isRender ? '/tmp/uploads' : path.join(__dirname, 'uploads');
 
 // Create directories SYNCHRONOUSLY (safe for startup)
-const dirs = [
-  uploadBaseDir,
-  path.join(uploadBaseDir, 'original'),
-  path.join(uploadBaseDir, 'certificates'),
-  path.join(uploadBaseDir, 'verified')
-];
+// const dirs = [
+//   uploadBaseDir,
+//   path.join(uploadBaseDir, 'original'),
+//   path.join(uploadBaseDir, 'certificates'),
+//   path.join(uploadBaseDir, 'verified')
+// ];
 
-dirs.forEach(dir => {
-  try {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-      console.log('Created directory:', dir);
-    }
-  } catch (err) {
-    console.error('Failed to create directory:', dir, err.message);
-    // Don't crash - log and continue
-  }
-});
+// dirs.forEach(dir => {
+//   try {
+//     if (!fs.existsSync(dir)) {
+//       fs.mkdirSync(dir, { recursive: true });
+//       console.log('Created directory:', dir);
+//     }
+//   } catch (err) {
+//     console.error('Failed to create directory:', dir, err.message);
+//     // Don't crash - log and continue
+//   }
+// });
 
 // Set environment variable for other modules
 process.env.UPLOAD_DIR = uploadBaseDir;

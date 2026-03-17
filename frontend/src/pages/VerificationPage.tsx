@@ -1,10 +1,17 @@
 // frontend/src/pages/VerificationPage.tsx
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import api from "../api";
+import axios from "axios"; // Remove this if you have a custom api instance
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 import { toast } from 'react-toastify';
+import attestedImage from '../assets/signatures/documents/attested_text.png';
+
+// Use your existing api instance OR create one with correct base URL
+const API_URL = process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com/api';
+
+// If you have an api.js file, import it instead:
+// import api from '../api';
 
 interface SignerData {
   id?: number;
@@ -44,26 +51,19 @@ const VerificationPage = () => {
   const fetchedCerts = useRef<Set<string>>(new Set());
   const abortController = useRef<AbortController | null>(null);
 
-  const getViewablePdfUrl = (url: string) => {
-    if (!url) return '';
-    if (url.includes('cloudinary.com')) {
-      const separator = url.includes('?') ? '&' : '?';
-      return `${url}${separator}fl_inline=true`;
-    }
-    return url;
-  };
-
-  // Helper to get correct signature image URL
+  // Helper to get signature image URL
   const getSignatureImageUrl = (signatureImage: string) => {
-    if (!signatureImage) return '';
-    // If it's already a full URL, use it
-    if (signatureImage.startsWith('http')) return signatureImage;
-    // If it starts with /, use as is
-    if (signatureImage.startsWith('/')) return signatureImage;
-    // Otherwise, prepend the assets path (singular 'signature' as per your folder structure)
-    return `/assets/signature/documents/${signatureImage}`;
-  };
+  if (!signatureImage) return '';
+  if (signatureImage.startsWith('http')) return signatureImage;
+  if (signatureImage.startsWith('/')) return signatureImage;
+  // Use API URL instead of frontend path
+  return `${API_URL}/signatures/${signatureImage}`; // ✅ Backend API path
+};
 
+  // Helper to get attested image URL
+  const getAttestedImageUrl = () => {
+  return `${API_URL}/signatures/documents/attested_text.png`;
+};
   const fetchData = useCallback(async () => {
     if (!certificateNumber) {
       setError("সার্টিফিকেট নম্বর পাওয়া যায়নি");
@@ -86,8 +86,12 @@ const VerificationPage = () => {
       setLoading(true);
       setError(null);
       
-      const response = await api.get(`/files/verify/${certificateNumber}`, {
-        signal: abortController.current.signal
+      // FIXED: Use the correct API URL with full base URL
+      const response = await axios.get(`${API_URL}/files/verify/${certificateNumber}`, {
+        signal: abortController.current.signal,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
       
       if (!response.data || !response.data.certificatePath) {
@@ -133,11 +137,10 @@ const VerificationPage = () => {
   const formatDate = (dateString: string) => {
     if (!dateString) return '';
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric'
-    });
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = date.toLocaleString('default', { month: 'short' });
+    const year = date.getFullYear();
+    return `${day} ${month} ${year}`;
   };
 
   if (loading) {
@@ -187,15 +190,6 @@ const VerificationPage = () => {
         <main className="flex-grow flex items-center justify-center p-4">
           <div className="bg-white p-8 rounded-xl shadow-lg text-center">
             <p className="text-gray-600">কোনো তথ্য পাওয়া যায়নি</p>
-            <button 
-              onClick={() => {
-                fetchedCerts.current.delete(certificateNumber || '');
-                fetchData();
-              }} 
-              className="mt-4 px-6 py-3 bg-green-600 text-white rounded-lg font-bold"
-            >
-              আবার চেষ্টা করুন
-            </button>
           </div>
         </main>
         <Footer />
@@ -205,13 +199,12 @@ const VerificationPage = () => {
 
   const hasCertificate = !!verificationData.certificatePath;
   const hasDocuments = Array.isArray(verificationData.documents) && verificationData.documents.length > 0;
-  const viewableCertificateUrl = getViewablePdfUrl(verificationData.certificatePath);
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
       <Header />
       <main className="flex-grow container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto space-y-8">
+        <div className="max-w-5xl mx-auto space-y-8">
           
           {/* Header Card */}
           <div className="bg-white rounded-2xl shadow-sm p-6 border border-green-100">
@@ -251,32 +244,17 @@ const VerificationPage = () => {
           {/* E-Apostille Certificate Section */}
           {hasCertificate && (
             <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
-              <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+              <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
                 <h2 className="text-lg font-bold text-gray-800">ই-আপোস্টিল সার্টিফিকেট</h2>
+                <span className="text-sm text-gray-500">প্রিভিউ</span>
               </div>
               <div className="p-6">
                 <div className="w-full border-2 border-gray-200 rounded-xl overflow-hidden bg-white shadow-inner">
-                  <object
-                    data={viewableCertificateUrl}
-                    type="application/pdf"
-                    className="w-full h-[60vh] md:h-[75vh]"
-                  >
-                    <div className="p-8 text-center text-gray-500">
-                      <p className="mb-4 text-lg">PDF ভিউয়ার লোড করা যাচ্ছে না</p>
-                      <p className="text-sm mb-4">ব্রাউজার সাপোর্টের সমস্যা হতে পারে</p>
-                      <a 
-                        href={verificationData.certificatePath} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        <span>নতুন ট্যাবে খুলুন</span>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
-                      </a>
-                    </div>
-                  </object>
+                  <embed
+  src={verificationData.certificatePath}
+  type="application/pdf"
+  className="w-full h-[600px]"
+/>
                 </div>
                 
                 <button 
@@ -286,7 +264,7 @@ const VerificationPage = () => {
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
-                  📥 সার্টিফিকেট ডাউনলোড করুন
+                  📥 সার্টিফিকেট ডাউনলোড করুন (PDF)
                 </button>
               </div>
             </div>
@@ -325,52 +303,80 @@ const VerificationPage = () => {
                     </div>
                   </div>
 
-                  {/* Signature Blocks - ALL signers appear below each document */}
+                  {/* Signature Blocks - Centered Layout */}
                   {doc.signers && doc.signers.length > 0 && (
-                    <div className="px-6 py-6 bg-white border-t border-gray-200">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="px-6 py-8 bg-white border-t border-gray-200">
+                      <div className="flex flex-wrap justify-center gap-8">
                         {doc.signers.map((signer, signerIndex) => (
-                          <div key={signerIndex} className="flex flex-col items-start space-y-1 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                            {/* Attested Text */}
-                            <div className="text-purple-800 font-serif italic text-base font-semibold">
-                              Attested
+                          <div 
+                            key={signerIndex} 
+                            className="flex flex-col items-center text-center min-w-[200px] max-w-[250px]"
+                          >
+                            {/* Attested Image */}
+                            <div className="mb-2">
+                              <img 
+                                src={getAttestedImageUrl()}
+                                alt="Attested"
+                                className="h-8 w-auto object-contain"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                  const parent = (e.target as HTMLImageElement).parentElement;
+                                  if (parent) {
+                                    parent.innerHTML = '<span class="text-purple-800 font-serif italic text-lg font-semibold">Attested</span>';
+                                  }
+                                }}
+                              />
                             </div>
                             
                             {/* Date */}
-                            <div className="text-gray-600 text-xs mb-1">
+                            <div className="text-gray-600 text-sm mb-3 font-medium">
                               {formatDate(signer.signatureDate)}
                             </div>
                             
                             {/* Signature Image */}
                             {signer.signature_image && (
-                              <div className="my-1">
-                                <img 
-                                  src={getSignatureImageUrl(signer.signature_image)}
-                                  alt={`${signer.name} signature`}
-                                  className="h-12 w-auto object-contain"
-                                  onError={(e) => {
-                                    console.error('Signature image failed to load:', signer.signature_image);
-                                    (e.target as HTMLImageElement).style.display = 'none';
-                                  }}
-                                />
-                              </div>
-                            )}
+  <div className="mb-3 h-16 flex items-center justify-center border border-gray-200 rounded bg-gray-50">
+    <img 
+      src={getSignatureImageUrl(signer.signature_image)}
+      alt={`${signer.name} signature`}
+      className="h-14 w-auto object-contain"
+      onError={(e) => {
+        const imgUrl = (e.target as HTMLImageElement).src;
+        console.error('❌ Signature image failed to load:', {
+          signerName: signer.name,
+          signatureImage: signer.signature_image,
+          generatedUrl: imgUrl,
+          apiUrl: API_URL
+        });
+        (e.target as HTMLImageElement).style.display = 'none';
+        // Show fallback
+        const parent = (e.target as HTMLImageElement).parentElement;
+        if (parent) {
+          parent.innerHTML = `<span class="text-red-500 text-xs">Failed: ${signer.signature_image}</span>`;
+        }
+      }}
+      onLoad={() => {
+        console.log('✅ Signature loaded:', signer.signature_image);
+      }}
+    />
+  </div>
+)}
                             
-                            {/* Signer Name - Bold */}
-                            <div className="font-bold text-gray-900 text-sm">
+                            {/* Signer Name - Purple and Bold */}
+                            <div className="font-bold text-purple-900 text-base mb-1">
                               {signer.name}
                             </div>
                             
                             {/* Designation */}
                             {signer.designation && (
-                              <div className="text-gray-700 text-xs">
+                              <div className="text-gray-700 text-sm mb-0.5">
                                 {signer.designation}
                               </div>
                             )}
                             
                             {/* Organization */}
                             {signer.organization && (
-                              <div className="text-gray-500 text-xs">
+                              <div className="text-gray-600 text-sm">
                                 {signer.organization}
                               </div>
                             )}
