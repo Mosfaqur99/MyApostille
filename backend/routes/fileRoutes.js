@@ -323,103 +323,126 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 // Get verification details by certificate number
 // Get verification details by certificate number
 // GET /verify/:certificateNumber - UPDATED for image display
+// GET /verify/:certificateNumber - Get verification data
 router.get('/verify/:certificateNumber', async (req, res) => {
-  try {
-    const { certificateNumber } = req.params;
-    
-    console.log('[Verify] Looking up certificate:', certificateNumber);
-    
-    const result = await pool.query(
-      `SELECT u.*, 
-              us.name as user_name, 
-              us.email as user_email,
-              v.name as verified_by_name
-       FROM uploads u
-       LEFT JOIN users us ON u.user_id = us.id
-       LEFT JOIN users v ON u.verified_by = v.id
-       WHERE u.certificate_number = $1 AND u.status = 'verified'`,
-      [certificateNumber]
-    );
-
-    if (result.rows.length === 0) {
-      console.log('[Verify] Certificate not found:', certificateNumber);
-      return res.status(404).json({ message: 'Certificate not found or not verified' });
-    }
-
-    const upload = result.rows[0];
-    
-    let certificateData = {};
-    let originalFiles = [];
-    let signaturesData = [];
-    
     try {
-      if (upload.certificate_data) {
-        certificateData = typeof upload.certificate_data === 'string' 
-          ? JSON.parse(upload.certificate_data) 
-          : upload.certificate_data;
-      }
-    } catch (e) {
-      console.warn('[Verify] Failed to parse certificate_data:', e.message);
+        const { certificateNumber } = req.params;
+        
+        // Get the apostille/certificate data
+        const apostilleQuery = `
+            SELECT a.*, u.email as user_email, u.full_name as user_name
+            FROM apostilles a
+            JOIN users u ON a.user_id = u.id
+            WHERE a.certificate_number = $1
+        `;
+        const apostilleResult = await pool.query(apostilleQuery, [certificateNumber]);
+        
+        if (apostilleResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Certificate not found' });
+        }
+        
+        const apostille = apostilleResult.rows[0];
+        
+        // Get the uploaded files/documents with their signers
+        const filesQuery = `
+            SELECT f.*, 
+                   COALESCE(json_agg(
+                       json_build_object(
+                           'id', s.id,
+                           'name', s.name,
+                           'designation', s.designation,
+                           'organization', s.organization,
+                           'signature_image', s.signature_image,
+                           'signature_date', fs.signature_date
+                       ) ORDER BY fs.id
+                   ) FILTER (WHERE s.id IS NOT NULL), '[]') as signers
+            FROM files f
+            LEFT JOIN file_signers fs ON f.id = fs.file_id
+            LEFT JOIN signers s ON fs.signer_id = s.id
+            WHERE f.apostille_id = $1
+            GROUP BY f.id
+        `;
+        const filesResult = await pool.query(filesQuery, [apostille.id]);
+        
+        // Format the response
+        const documents = filesResult.rows.map(file => ({
+            id: file.id,
+            url: file.file_url, // Original image URL
+            originalName: file.original_name,
+            fileType: file.file_type,
+            signers: file.signers || [] // Dynamic signers from admin selection
+        }));
+        
+        res.json({
+            certificateNumber: apostille.certificate_number,
+            certificatePath: apostille.certificate_url, // PDF URL for the e-Apostille certificate
+            status: apostille.status,
+            createdAt: apostille.created_at,
+            documents: documents,
+            user: {
+                name: apostille.user_name,
+                email: apostille.user_email
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error in verify GET:', error);
+        res.status(500).json({ message: 'Internal server error', error: error.message });
     }
-    
+});
+
+// POST /verify/:id - Process verification (when admin clicks verify)
+router.post('/verify/:id', authenticateToken, isAdmin, async (req, res) => {
     try {
-      if (upload.file_paths) {
-        originalFiles = typeof upload.file_paths === 'string'
-          ? JSON.parse(upload.file_paths)
-          : upload.file_paths;
-      }
-    } catch (e) {
-      console.warn('[Verify] Failed to parse file_paths:', e.message);
+        const { id } = req.params;
+        const { certificateNumber } = req.body;
+        
+        // Get file data with signers
+        const fileQuery = `
+            SELECT f.*, 
+                   COALESCE(json_agg(
+                       json_build_object(
+                           'name', s.name,
+                           'designation', s.designation,
+                           'organization', s.organization,
+                           'signature_image', s.signature_image
+                       ) ORDER BY fs.id
+                   ) FILTER (WHERE s.id IS NOT NULL), '[]') as signers
+            FROM files f
+            LEFT JOIN file_signers fs ON f.id = fs.file_id
+            LEFT JOIN signers s ON fs.signer_id = s.id
+            WHERE f.id = $1
+            GROUP BY f.id
+        `;
+        const fileResult = await pool.query(fileQuery, [id]);
+        
+        if (fileResult.rows.length === 0) {
+            return res.status(404).json({ message: 'File not found' });
+        }
+        
+        const file = fileResult.rows[0];
+        
+        // Update file status to verified
+        await pool.query(
+            'UPDATE files SET status = $1, certificate_number = $2, verified_at = NOW() WHERE id = $3',
+            ['verified', certificateNumber, id]
+        );
+        
+        // Return the file data with signers for frontend display
+        res.json({
+            success: true,
+            file: {
+                id: file.id,
+                url: file.file_url,
+                originalName: file.original_name,
+                signers: file.signers || []
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error in verify POST:', error);
+        res.status(500).json({ message: 'Internal server error', error: error.message });
     }
-    
-    try {
-      if (upload.additional_signatures_data) {
-        signaturesData = typeof upload.additional_signatures_data === 'string'
-          ? JSON.parse(upload.additional_signatures_data)
-          : upload.additional_signatures_data;
-      }
-    } catch (e) {
-      console.warn('[Verify] Failed to parse additional_signatures_data:', e.message);
-    }
-
-    // Build documents array with original URLs and signer info
-    const documents = originalFiles.map((file, index) => {
-      const fileUrl = typeof file === 'object' ? file.path : file;
-      return {
-        url: fileUrl,
-        originalName: typeof file === 'object' ? file.original_name : `Document ${index + 1}`,
-        signers: signaturesData.map(signer => ({
-          name: signer.name,
-          designation: signer.designation,
-          organization: signer.organization,
-          signature_image: signer.signature_image,
-          signatureDate: signer.signatureDate || upload.verified_at
-        }))
-      };
-    });
-
-    const responseData = {
-      certificateNumber: upload.certificate_number,
-      certificatePath: upload.certificate_pdf_path,
-      documents: documents,
-      userName: upload.user_name,
-      userEmail: upload.user_email,
-      verifiedByName: upload.verified_by_name,
-      verifiedAt: upload.verified_at,
-      documentIssuer: certificateData.documentIssuer || certificateData.actingCapacity || 'N/A',
-      documentLocation: certificateData.documentLocation || 'Dhaka',
-      certificateLocation: certificateData.certificateLocation || 'Dhaka',
-      certificateDate: certificateData.certificateDate || upload.verified_at,
-      authorityName: certificateData.authorityName || 'MD. ASIF KHAN PRANTO'
-    };
-
-    console.log('[Verify] Returning data with', documents.length, 'documents');
-    res.json(responseData);
-    
-  } catch (err) {
-    console.error('[Verify] Error:', err);
-    res.status(500).json({ message: 'Verification failed', error: err.message });
-  }
 });
 
 // POST /verify/:id - COMPLETE FIXED VERSION

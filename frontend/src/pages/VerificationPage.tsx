@@ -7,6 +7,7 @@ import Footer from "../components/Footer";
 import { toast } from 'react-toastify';
 
 interface SignerData {
+  id?: number;
   name: string;
   designation: string;
   organization: string;
@@ -59,7 +60,6 @@ const VerificationPage = () => {
     }
 
     if (fetchedCerts.current.has(certificateNumber)) {
-      console.log('[VerificationPage] Already fetched or fetching:', certificateNumber);
       return;
     }
 
@@ -74,12 +74,9 @@ const VerificationPage = () => {
       setLoading(true);
       setError(null);
       
-      console.log('[VerificationPage] Fetching certificate:', certificateNumber);
       const response = await api.get(`/files/verify/${certificateNumber}`, {
         signal: abortController.current.signal
       });
-      
-      console.log('[VerificationPage] Data received:', response.data);
       
       if (!response.data || !response.data.certificatePath) {
         throw new Error("Invalid data received from server");
@@ -88,7 +85,6 @@ const VerificationPage = () => {
       setVerificationData(response.data);
     } catch (err: any) {
       if (err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
-        console.log('[VerificationPage] Request cancelled');
         return;
       }
       
@@ -199,6 +195,9 @@ const VerificationPage = () => {
   const hasDocuments = Array.isArray(verificationData.documents) && verificationData.documents.length > 0;
   const viewableCertificateUrl = getViewablePdfUrl(verificationData.certificatePath);
 
+  // Get all unique signers from the first document (all documents have same signers)
+  const allSigners = hasDocuments && verificationData.documents[0]?.signers ? verificationData.documents[0].signers : [];
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
       <Header />
@@ -286,14 +285,14 @@ const VerificationPage = () => {
 
           {/* Attested Documents Section */}
           {hasDocuments && (
-            <div className="space-y-6">
+            <div className="space-y-8">
               <div className="border-b-2 border-green-600 pb-2">
                 <h2 className="text-xl font-bold text-gray-800">স্বাক্ষরিত মূল নথিসমূহ</h2>
                 <p className="text-sm text-gray-600 mt-1">নিচের নথিগুলি আপোস্টিল করা হয়েছে</p>
               </div>
 
-              {verificationData.documents.map((doc, index) => (
-                <div key={index} className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
+              {verificationData.documents.map((doc, docIndex) => (
+                <div key={docIndex} className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
                   {/* Document Image */}
                   <div className="p-4 bg-gray-50">
                     <div className="bg-white rounded-lg overflow-hidden shadow-inner">
@@ -301,12 +300,12 @@ const VerificationPage = () => {
                         <iframe
                           src={`https://docs.google.com/viewer?url=${encodeURIComponent(doc.url)}&embedded=true`}
                           className="w-full h-[600px] border-none"
-                          title={`Document ${index + 1}`}
+                          title={`Document ${docIndex + 1}`}
                         />
                       ) : (
                         <img
                           src={doc.url}
-                          alt={`Document ${index + 1}`}
+                          alt={`Document ${docIndex + 1}`}
                           className="w-full h-auto object-contain"
                           onError={(e) => {
                             console.error('Image failed to load:', doc.url);
@@ -317,54 +316,56 @@ const VerificationPage = () => {
                     </div>
                   </div>
 
-                  {/* Signature Block - Below the image */}
+                  {/* Signature Blocks - ALL signers appear below each document */}
                   <div className="px-6 py-6 bg-white border-t border-gray-200">
-                    {doc.signers?.map((signer, signerIndex) => (
-                      <div key={signerIndex} className="flex flex-col items-start space-y-2">
-                        {/* Attested Text */}
-                        <div className="text-purple-800 font-serif italic text-lg">
-                          Attested
-                        </div>
-                        
-                        {/* Date */}
-                        <div className="text-gray-700 text-sm">
-                          {formatDate(signer.signatureDate)}
-                        </div>
-                        
-                        {/* Signature Image */}
-                        {signer.signature_image && (
-                          <div className="my-2">
-                            <img 
-                              src={`/assets/signatures/documents/${signer.signature_image}`}
-                              alt="Signature"
-                              className="h-12 w-auto object-contain"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).style.display = 'none';
-                              }}
-                            />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {doc.signers?.map((signer, signerIndex) => (
+                        <div key={signerIndex} className="flex flex-col items-start space-y-1 p-4 bg-gray-50 rounded-lg">
+                          {/* Attested Text */}
+                          <div className="text-purple-800 font-serif italic text-base font-semibold">
+                            Attested
                           </div>
-                        )}
-                        
-                        {/* Signer Name - Bold */}
-                        <div className="font-bold text-gray-900 text-base">
-                          {signer.name}
+                          
+                          {/* Date */}
+                          <div className="text-gray-600 text-xs mb-1">
+                            {formatDate(signer.signatureDate)}
+                          </div>
+                          
+                          {/* Signature Image */}
+                          {signer.signature_image && (
+                            <div className="my-1">
+                              <img 
+                                src={`/assets/signatures/documents/${signer.signature_image}`}
+                                alt={`${signer.name} signature`}
+                                className="h-10 w-auto object-contain"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            </div>
+                          )}
+                          
+                          {/* Signer Name - Bold */}
+                          <div className="font-bold text-gray-900 text-sm">
+                            {signer.name}
+                          </div>
+                          
+                          {/* Designation */}
+                          {signer.designation && (
+                            <div className="text-gray-700 text-xs">
+                              {signer.designation}
+                            </div>
+                          )}
+                          
+                          {/* Organization */}
+                          {signer.organization && (
+                            <div className="text-gray-500 text-xs">
+                              {signer.organization}
+                            </div>
+                          )}
                         </div>
-                        
-                        {/* Designation */}
-                        {signer.designation && (
-                          <div className="text-gray-700 text-sm">
-                            {signer.designation}
-                          </div>
-                        )}
-                        
-                        {/* Organization */}
-                        {signer.organization && (
-                          <div className="text-gray-600 text-sm">
-                            {signer.organization}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </div>
               ))}
