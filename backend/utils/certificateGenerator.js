@@ -388,16 +388,22 @@ async function generateEApostilleCertificate(certificateData) {
     const bottomSectionY = margin + 80;
 
     // QR Code at bottom right
-    const qrBuffer = await generateQRCode(`https://mofa.servicedirectory.apostille.mygov.bd/verify/${certNo}`);
-    if (qrBuffer) {
-      const qrImage = await doc.embedPng(qrBuffer);
-      page.drawImage(qrImage, { 
-        x: qrX+10, 
-        y: bottomSectionY-60, 
-        width: qrSize, 
-        height: qrSize 
-      });
-    }
+    
+    try {
+  const qrBuffer = await generateQRCode(`https://mygovapostille.com/verify/${certNo}`);
+  if (qrBuffer) {
+    const qrImage = await doc.embedPng(qrBuffer);
+    page.drawImage(qrImage, { 
+      x: qrX + 10, 
+      y: bottomSectionY - 60, 
+      width: qrSize, 
+      height: qrSize 
+    });
+  }
+} catch (error) {
+  console.error('Error generating QR code:', error);
+  // Continue without QR code if it fails
+}
 
     // Digital signature info at bottom left
     const infoX = labelX+60;
@@ -472,7 +478,7 @@ async function generateEApostilleCertificate(certificateData) {
     });
 
     // Blue hyperlink text
-    page.drawText(`${bullet} For verification of the e-Apostille, please visit: https://mofa.servicedirectory.apostille.mygov.bd`, {
+    page.drawText(`${bullet} For verification of the e-Apostille, please visit: https://mofa-servicedirectory.stage.mygov.bd/`, {
       x: infoX-60, 
       y: footerY, 
       size: 7.5, 
