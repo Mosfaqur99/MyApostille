@@ -402,7 +402,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 });
 
 // POST /verify/:id - Process verification (when admin clicks verify)
-router.post('/verify/:id', verifyToken, isAdmin, async (req, res) => {
+router.post('/verify/:id', verifyToken, authorizeRole('admin'), async (req, res) => {
     try {
         const { id } = req.params;
         const { certificateNumber } = req.body;

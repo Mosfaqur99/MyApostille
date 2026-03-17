@@ -60,8 +60,8 @@ const VerificationPage = () => {
     if (signatureImage.startsWith('http')) return signatureImage;
     // If it starts with /, use as is
     if (signatureImage.startsWith('/')) return signatureImage;
-    // Otherwise, prepend the assets path
-    return `/assets/signatures/documents/${signatureImage}`;
+    // Otherwise, prepend the assets path (singular 'signature' as per your folder structure)
+    return `/assets/signature/documents/${signatureImage}`;
   };
 
   const fetchData = useCallback(async () => {
