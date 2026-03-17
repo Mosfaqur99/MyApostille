@@ -41,6 +41,7 @@ app.options('*', cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
+app.use('/api/signatures', express.static(path.join(__dirname, 'assets', 'signatures', 'documents')));
 // ==========================================
 // DIRECTORY SETUP - CRITICAL FIX
 // ==========================================
