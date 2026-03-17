@@ -324,17 +324,19 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 // Get verification details by certificate number
 // GET /verify/:certificateNumber - UPDATED for image display
 // GET /verify/:certificateNumber - Get verification data
+// GET /verify/:certificateNumber
 router.get('/verify/:certificateNumber', async (req, res) => {
     try {
         const { certificateNumber } = req.params;
         
-        // Get the apostille/certificate data
+        // Get apostille with user info
         const apostilleQuery = `
-            SELECT a.*, u.email as user_email, u.full_name as user_name
+            SELECT a.*, u.full_name as user_name, u.email as user_email
             FROM apostilles a
             JOIN users u ON a.user_id = u.id
             WHERE a.certificate_number = $1
         `;
+        
         const apostilleResult = await pool.query(apostilleQuery, [certificateNumber]);
         
         if (apostilleResult.rows.length === 0) {
@@ -343,51 +345,60 @@ router.get('/verify/:certificateNumber', async (req, res) => {
         
         const apostille = apostilleResult.rows[0];
         
-        // Get the uploaded files/documents with their signers
+        // Get files with their signers - FIXED QUERY
         const filesQuery = `
-            SELECT f.*, 
-                   COALESCE(json_agg(
-                       json_build_object(
-                           'id', s.id,
-                           'name', s.name,
-                           'designation', s.designation,
-                           'organization', s.organization,
-                           'signature_image', s.signature_image,
-                           'signature_date', fs.signature_date
-                       ) ORDER BY fs.id
-                   ) FILTER (WHERE s.id IS NOT NULL), '[]') as signers
+            SELECT 
+                f.id,
+                f.file_url,
+                f.original_name,
+                f.file_type,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', s.id,
+                            'name', s.name,
+                            'designation', s.designation,
+                            'organization', s.organization,
+                            'signature_image', s.signature_image,
+                            'signatureDate', fs.signature_date
+                        ) ORDER BY fs.id
+                    ) FILTER (WHERE s.id IS NOT NULL),
+                    '[]'
+                ) as signers
             FROM files f
             LEFT JOIN file_signers fs ON f.id = fs.file_id
             LEFT JOIN signers s ON fs.signer_id = s.id
             WHERE f.apostille_id = $1
             GROUP BY f.id
         `;
+        
         const filesResult = await pool.query(filesQuery, [apostille.id]);
         
-        // Format the response
+        // Format documents
         const documents = filesResult.rows.map(file => ({
-            id: file.id,
-            url: file.file_url, // Original image URL
+            url: file.file_url,
             originalName: file.original_name,
             fileType: file.file_type,
-            signers: file.signers || [] // Dynamic signers from admin selection
+            signers: file.signers || []
         }));
-        
+
         res.json({
             certificateNumber: apostille.certificate_number,
-            certificatePath: apostille.certificate_url, // PDF URL for the e-Apostille certificate
-            status: apostille.status,
-            createdAt: apostille.created_at,
-            documents: documents,
-            user: {
-                name: apostille.user_name,
-                email: apostille.user_email
-            }
+            certificatePath: apostille.certificate_url,
+            userName: apostille.user_name,
+            userEmail: apostille.user_email,
+            verifiedByName: apostille.verified_by_name,
+            verifiedAt: apostille.verified_at,
+            authorityName: apostille.authority_name,
+            documents: documents
         });
         
     } catch (error) {
-        console.error('Error in verify GET:', error);
-        res.status(500).json({ message: 'Internal server error', error: error.message });
+        console.error('Verification fetch error:', error);
+        res.status(500).json({ 
+            message: 'Internal server error', 
+            error: error.message 
+        });
     }
 });
 
