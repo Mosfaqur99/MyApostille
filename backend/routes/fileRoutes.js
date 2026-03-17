@@ -325,11 +325,11 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 // GET /verify/:certificateNumber - UPDATED for image display
 // GET /verify/:certificateNumber - Get verification data
 // GET /verify/:certificateNumber
+// GET /verify/:certificateNumber
 router.get('/verify/:certificateNumber', async (req, res) => {
     try {
         const { certificateNumber } = req.params;
         
-        // Get apostille with user info
         const apostilleQuery = `
             SELECT a.*, u.full_name as user_name, u.email as user_email
             FROM apostilles a
@@ -345,7 +345,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
         
         const apostille = apostilleResult.rows[0];
         
-        // Get files with their signers - FIXED QUERY
+        // Get files with their signers - including signature_image from signers table
         const filesQuery = `
             SELECT 
                 f.id,
@@ -374,7 +374,6 @@ router.get('/verify/:certificateNumber', async (req, res) => {
         
         const filesResult = await pool.query(filesQuery, [apostille.id]);
         
-        // Format documents
         const documents = filesResult.rows.map(file => ({
             url: file.file_url,
             originalName: file.original_name,
@@ -403,7 +402,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 });
 
 // POST /verify/:id - Process verification (when admin clicks verify)
-router.post('/verify/:id', authenticateToken, isAdmin, async (req, res) => {
+router.post('/verify/:id', verifyToken, isAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { certificateNumber } = req.body;
