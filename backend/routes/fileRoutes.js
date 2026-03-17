@@ -319,13 +319,6 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
   }
 });
 
-// GET /verify/:certificateNumber - PUBLIC verification endpoint
-// Get verification details by certificate number
-// Get verification details by certificate number
-// GET /verify/:certificateNumber - UPDATED for image display
-// GET /verify/:certificateNumber - Get verification data
-// GET /verify/:certificateNumber
-// GET /verify/:certificateNumber
 // GET /verify/:certificateNumber - PUBLIC ROUTE
 router.get('/verify/:certificateNumber', async (req, res) => {
     try {
@@ -416,65 +409,135 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 });
 
 // POST /verify/:id - Process verification (when admin clicks verify)
-router.post('/verify/:id', verifyToken, authorizeRole('admin'), async (req, res) => {
+router.get('/verify/:certificateNumber', async (req, res) => {
     try {
-        const { id } = req.params;
-        const { certificateNumber } = req.body;
+        const { certificateNumber } = req.params;
         
-        // Get file data with signers
-        const fileQuery = `
-            SELECT f.*, 
-                   COALESCE(json_agg(
-                       json_build_object(
-                           'name', s.name,
-                           'designation', s.designation,
-                           'organization', s.organization,
-                           'signature_image', s.signature_image
-                       ) ORDER BY fs.id
-                   ) FILTER (WHERE s.id IS NOT NULL), '[]') as signers
-            FROM files f
-            LEFT JOIN file_signers fs ON f.id = fs.file_id
-            LEFT JOIN signers s ON fs.signer_id = s.id
-            WHERE f.id = $1
-            GROUP BY f.id
+        // Get upload with user info
+        const uploadQuery = `
+            SELECT u.*, 
+                   usr.full_name as user_name, 
+                   usr.email as user_email,
+                   verifier.full_name as verified_by_name
+            FROM uploads u
+            JOIN users usr ON u.user_id = usr.id
+            LEFT JOIN users verifier ON u.verified_by = verifier.id
+            WHERE u.certificate_number = $1
         `;
-        const fileResult = await pool.query(fileQuery, [id]);
         
-        if (fileResult.rows.length === 0) {
-            return res.status(404).json({ message: 'File not found' });
+        const uploadResult = await pool.query(uploadQuery, [certificateNumber]);
+        
+        if (uploadResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Certificate not found' });
         }
         
-        const file = fileResult.rows[0];
+        const upload = uploadResult.rows[0];
         
-        // Update file status to verified
-        await pool.query(
-            'UPDATE files SET status = $1, certificate_number = $2, verified_at = NOW() WHERE id = $3',
-            ['verified', certificateNumber, id]
-        );
-        
-        // Return the file data with signers for frontend display
-        res.json({
-            success: true,
-            file: {
-                id: file.id,
-                url: file.file_url,
-                originalName: file.original_name,
-                signers: file.signers || []
+        // Parse additional_signatures_data JSONB to get signers
+        let signers = [];
+        if (upload.additional_signatures_data) {
+            try {
+                const sigData = typeof upload.additional_signatures_data === 'string' 
+                    ? JSON.parse(upload.additional_signatures_data) 
+                    : upload.additional_signatures_data;
+                
+                if (Array.isArray(sigData)) {
+                    signers = sigData.map(sig => ({
+                        id: sig.id || sig.signerId,
+                        name: sig.name,
+                        designation: sig.designation,
+                        organization: sig.organization,
+                        signature_image: sig.signature_image || sig.signatureImage,
+                        signatureDate: sig.signatureDate || sig.date || upload.certificate_date
+                    }));
+                }
+            } catch (e) {
+                console.warn('Failed to parse additional_signatures_data:', e.message);
             }
+        }
+        
+        // Build documents array from reuploaded files
+        let documents = [];
+        
+        if (upload.reuploaded_file_paths) {
+            try {
+                const reuploaded = typeof upload.reuploaded_file_paths === 'string'
+                    ? JSON.parse(upload.reuploaded_file_paths)
+                    : upload.reuploaded_file_paths;
+                
+                if (Array.isArray(reuploaded) && reuploaded.length > 0) {
+                    documents = reuploaded.map((path, index) => ({
+                        url: path,
+                        originalName: `Document ${index + 1}`,
+                        fileType: 'image/jpeg',
+                        signers: signers
+                    }));
+                }
+            } catch (e) {
+                console.warn('Failed to parse reuploaded_file_paths:', e.message);
+            }
+        }
+        
+        // Fallback to original files if no reuploaded files
+        if (documents.length === 0 && upload.file_paths) {
+            try {
+                const files = typeof upload.file_paths === 'string'
+                    ? JSON.parse(upload.file_paths)
+                    : upload.file_paths;
+                
+                if (Array.isArray(files)) {
+                    documents = files.map((path, index) => ({
+                        url: path,
+                        originalName: upload.original_filename || `Document ${index + 1}`,
+                        fileType: upload.file_type,
+                        signers: signers
+                    }));
+                } else if (files) {
+                    documents = [{
+                        url: files,
+                        originalName: upload.original_filename,
+                        fileType: upload.file_type,
+                        signers: signers
+                    }];
+                }
+            } catch (e) {
+                console.warn('Failed to parse file_paths:', e.message);
+            }
+        }
+        
+        // Final fallback to single file_path
+        if (documents.length === 0 && upload.file_path) {
+            documents = [{
+                url: upload.file_path,
+                originalName: upload.original_filename,
+                fileType: upload.file_type,
+                signers: signers
+            }];
+        }
+
+        res.json({
+            certificateNumber: upload.certificate_number,
+            certificatePath: upload.certificate_pdf_path,
+            userName: upload.user_name,
+            userEmail: upload.user_email,
+            verifiedByName: upload.verified_by_name,
+            verifiedAt: upload.verified_at,
+            authorityName: upload.authority_name,
+            documents: documents
         });
         
     } catch (error) {
-        console.error('Error in verify POST:', error);
-        res.status(500).json({ message: 'Internal server error', error: error.message });
+        console.error('Verification fetch error:', error);
+        res.status(500).json({ 
+            message: 'Internal server error', 
+            error: error.message 
+        });
     }
 });
 
-// POST /verify/:id - COMPLETE FIXED VERSION
-// POST /verify/:id - CLOUDINARY VERSION
+// POST /verify/:id - PROTECTED ROUTE (Admin only)
 router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.array('reuploadedFiles', 10), async (req, res) => {
   const uploadId = req.params.id;
-  const { generateCertificatePDF, processDocumentsForVerification } = require('../utils/documentProcessor');
-  console.log('🔍 Verify endpoint called for upload:', uploadId);
   
   const client = await pool.connect();
   
@@ -505,8 +568,10 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.a
       return res.status(400).json({ message: 'Please re-upload documents' });
     }
 
-    // Step 3: Generate certificate PDF (in memory)
-    const certNumber = generateCertNumber();
+    // Step 3: Generate certificate number
+    const certNumber = `BD-APO-${Date.now()}-${uploadId}`;
+
+    // Step 4: Generate certificate PDF
     const certificateData = {
       documentIssuer, 
       actingCapacity: documentTitle, 
@@ -544,113 +609,92 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.a
     });
     
     const certUrl = certUploadResult.secure_url;
-    console.log('✅ Certificate uploaded to Cloudinary:', certUrl);
 
-    // Step 4: Parse additional signers
-    let signersWithDates = [];
+    // Step 5: Upload reuploaded files to Cloudinary
+    const reuploadedUrls = [];
+    for (const file of req.files) {
+      const result = await cloudinary.uploader.upload(file.path, {
+        folder: 'apostille/verified',
+        resource_type: 'auto'
+      });
+      reuploadedUrls.push(result.secure_url);
+    }
+
+    // Step 6: Parse additional signers
     let signaturesData = [];
     
     if (additionalSigners) {
       try {
         const signerIds = JSON.parse(additionalSigners);
-        if (signerIds.length > 0) {
-          const signerIdsArray = signerIds.map(s => s.signerId);
+        if (Array.isArray(signerIds) && signerIds.length > 0) {
+          const signerIdsArray = signerIds.map(s => s.signerId || s.id);
           const signersResult = await client.query(
             'SELECT * FROM additional_signers WHERE id = ANY($1)',
             [signerIdsArray]
           );
-          signersWithDates = signersResult.rows.map(signer => ({
-            ...signer,
-            signatureDate: signerIds.find(s => s.signerId === signer.id)?.date || new Date().toISOString().split('T')[0]
+          signaturesData = signersResult.rows.map(signer => ({
+            id: signer.id,
+            name: signer.name,
+            designation: signer.designation,
+            organization: signer.organization,
+            signature_image: signer.signature_image,
+            signatureDate: signerIds.find(s => (s.signerId || s.id) === signer.id)?.date || certificateDate
           }));
-          signaturesData = signersWithDates;
         }
       } catch (e) {
-        console.warn('⚠️ Failed to parse additionalSigners:', e.message);
+        console.warn('Failed to parse additionalSigners:', e.message);
       }
     }
 
-    let originalFiles = [];
-try {
-  originalFiles = typeof upload.file_paths === 'string' 
-    ? JSON.parse(upload.file_paths) 
-    : upload.file_paths;
-} catch (e) {
-  console.warn('⚠️ Failed to parse original file paths:', e.message);
-}
+    // Step 7: UPDATE DATABASE
+    const updateQuery = `
+      UPDATE uploads 
+      SET status = 'verified',
+          certificate_number = $1,
+          certificate_pdf_path = $2,
+          certificate_data = $3,
+          reuploaded_file_paths = $4,
+          additional_signatures_data = $5,
+          verified_by = $6,
+          verified_at = CURRENT_TIMESTAMP,
+          document_issuer = $7,
+          document_title = $8,
+          document_location = $9,
+          certificate_location = $10,
+          certificate_date = $11,
+          authority_name = $12
+      WHERE id = $13
+      RETURNING *
+    `;
 
-const processedDocs = await processDocumentsForVerification(
-  originalFiles,
-  signersWithDates,
-  certNumber
-);
+    await client.query(updateQuery, [
+      certNumber,
+      certUrl,
+      JSON.stringify(certificateData),
+      JSON.stringify(reuploadedUrls),
+      JSON.stringify(signaturesData),
+      req.user.id,
+      documentIssuer,
+      documentTitle,
+      documentLocation,
+      certificateLocation,
+      certificateDate,
+      authorityName,
+      uploadId
+    ]);
 
-// Step 6: UPDATE DATABASE
-const updateQuery = `
-  UPDATE uploads 
-  SET status = 'verified',
-      certificate_number = $1,
-      certificate_pdf_path = $2,
-      certificate_data = $3,
-      reuploaded_file_paths = $4,
-      additional_signatures_data = $5,
-      verified_by = $6,
-      verified_at = CURRENT_TIMESTAMP
-  WHERE id = $7
-  RETURNING *
-`;
+    await client.query('COMMIT');
 
-const updateResult = await client.query(updateQuery, [
-  certNumber,
-  certUrl,
-  JSON.stringify(certificateData),
-  JSON.stringify(processedDocs),  // Now stores document metadata
-  JSON.stringify(signaturesData),
-  req.user.id,
-  uploadId
-]);
-
-    // Step 7: Cleanup - delete original files from Cloudinary (optional)
-    if (upload.file_paths) {
-      const files = typeof upload.file_paths === 'string' 
-        ? JSON.parse(upload.file_paths) 
-        : upload.file_paths;
-      for (const f of Array.isArray(files) ? files : [files]) {
-        if (f?.public_id) {
-          try {
-            await cloudinary.uploader.destroy(f.public_id);
-            console.log('🗑️ Deleted from Cloudinary:', f.public_id);
-          } catch (e) {
-            console.warn('⚠️ Could not delete from Cloudinary:', e.message);
-          }
-        }
-      }
-    }
-
-    // Step 8: Send success response
-    console.log('✅ VERIFICATION COMPLETE for cert:', certNumber);
     res.json({
       message: 'e-APOSTILLE Certificate generated successfully',
       certificateNumber: certNumber,
-      certificatePath: certUrl,  // Full Cloudinary URL
-      reuploadedFiles: reuploadedUrls  // Full Cloudinary URLs
+      certificatePath: certUrl,
+      reuploadedFiles: reuploadedUrls
     });
 
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('❌ VERIFICATION FAILED:', err.message);
-    console.error(err.stack);
-    
-    // Cleanup uploaded files on error - delete from Cloudinary
-    if (req.files) {
-      for (const file of req.files) {
-        if (file.public_id) {
-          try {
-            await cloudinary.uploader.destroy(file.public_id);
-          } catch (e) {}
-        }
-      }
-    }
+    console.error('Verification failed:', err);
     
     res.status(500).json({
       message: 'Verification failed',
