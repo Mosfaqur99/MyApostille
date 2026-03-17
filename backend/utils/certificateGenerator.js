@@ -387,17 +387,17 @@ async function generateEApostilleCertificate(certificateData) {
     const qrX = width - margin - qrSize - 25;
     const bottomSectionY = margin + 80;
 
-    // QR Code at bottom right
-    const qrBuffer = await generateQRCode(`https://mygovapostille.com/verify/${certNo}`);
-    if (qrBuffer) {
-      const qrImage = await doc.embedPng(qrBuffer);
-      page.drawImage(qrImage, { 
-        x: qrX+10, 
-        y: bottomSectionY-60, 
-        width: qrSize, 
-        height: qrSize 
-      });
-    }
+   // QR Code at bottom right
+const qrBuffer = await generateQRCode(`https://mygovapostille.com/verify/${certNo}`);
+if (qrBuffer) {
+  const qrImage = await doc.embedPng(qrBuffer);
+  page.drawImage(qrImage, { 
+    x: qrX+10, 
+    y: bottomSectionY-60, 
+    width: qrSize, 
+    height: qrSize 
+  });
+}
 
     // Digital signature info at bottom left
     const infoX = labelX+60;
