@@ -326,69 +326,83 @@ router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (re
 // GET /verify/:certificateNumber - Get verification data
 // GET /verify/:certificateNumber
 // GET /verify/:certificateNumber
+// GET /verify/:certificateNumber - PUBLIC ROUTE
 router.get('/verify/:certificateNumber', async (req, res) => {
     try {
         const { certificateNumber } = req.params;
         
-        const apostilleQuery = `
-            SELECT a.*, u.full_name as user_name, u.email as user_email
-            FROM apostilles a
-            JOIN users u ON a.user_id = u.id
-            WHERE a.certificate_number = $1
+        // Get upload with user info
+        const uploadQuery = `
+            SELECT u.*, 
+                   usr.full_name as user_name, 
+                   usr.email as user_email,
+                   verifier.full_name as verified_by_name
+            FROM uploads u
+            JOIN users usr ON u.user_id = usr.id
+            LEFT JOIN users verifier ON u.verified_by = verifier.id
+            WHERE u.certificate_number = $1
         `;
         
-        const apostilleResult = await pool.query(apostilleQuery, [certificateNumber]);
+        const uploadResult = await pool.query(uploadQuery, [certificateNumber]);
         
-        if (apostilleResult.rows.length === 0) {
+        if (uploadResult.rows.length === 0) {
             return res.status(404).json({ message: 'Certificate not found' });
         }
         
-        const apostille = apostilleResult.rows[0];
+        const upload = uploadResult.rows[0];
         
-        // Get files with their signers - including signature_image from signers table
-        const filesQuery = `
-            SELECT 
-                f.id,
-                f.file_url,
-                f.original_name,
-                f.file_type,
-                COALESCE(
-                    json_agg(
-                        json_build_object(
-                            'id', s.id,
-                            'name', s.name,
-                            'designation', s.designation,
-                            'organization', s.organization,
-                            'signature_image', s.signature_image,
-                            'signatureDate', fs.signature_date
-                        ) ORDER BY fs.id
-                    ) FILTER (WHERE s.id IS NOT NULL),
-                    '[]'
-                ) as signers
-            FROM files f
-            LEFT JOIN file_signers fs ON f.id = fs.file_id
-            LEFT JOIN signers s ON fs.signer_id = s.id
-            WHERE f.apostille_id = $1
-            GROUP BY f.id
-        `;
+        // Parse additional_signatures_data JSONB to get signers
+        let signers = [];
+        if (upload.additional_signatures_data && Array.isArray(upload.additional_signatures_data)) {
+            signers = upload.additional_signatures_data.map(sig => ({
+                id: sig.signerId || sig.id,
+                name: sig.name,
+                designation: sig.designation,
+                organization: sig.organization,
+                signature_image: sig.signature_image || sig.signatureImage,
+                signatureDate: sig.date || sig.signatureDate
+            }));
+        }
         
-        const filesResult = await pool.query(filesQuery, [apostille.id]);
+        // Build documents array from reuploaded files or original files
+        let documents = [];
         
-        const documents = filesResult.rows.map(file => ({
-            url: file.file_url,
-            originalName: file.original_name,
-            fileType: file.file_type,
-            signers: file.signers || []
-        }));
+        // Check if there are reuploaded files with stamps/signatures
+        if (upload.reuploaded_file_paths && Array.isArray(upload.reuploaded_file_paths) && upload.reuploaded_file_paths.length > 0) {
+            documents = upload.reuploaded_file_paths.map((path, index) => ({
+                url: path,
+                originalName: `Document ${index + 1}`,
+                fileType: 'image/jpeg', // or detect from path
+                signers: signers // All signers appear on each document
+            }));
+        } 
+        // Fallback to original files if no reuploaded files
+        else if (upload.file_paths && Array.isArray(upload.file_paths) && upload.file_paths.length > 0) {
+            documents = upload.file_paths.map((path, index) => ({
+                url: path,
+                originalName: upload.original_filename || `Document ${index + 1}`,
+                fileType: upload.file_type,
+                signers: signers
+            }));
+        } 
+        // Single file fallback
+        else if (upload.file_path) {
+            documents = [{
+                url: upload.file_path,
+                originalName: upload.original_filename,
+                fileType: upload.file_type,
+                signers: signers
+            }];
+        }
 
         res.json({
-            certificateNumber: apostille.certificate_number,
-            certificatePath: apostille.certificate_url,
-            userName: apostille.user_name,
-            userEmail: apostille.user_email,
-            verifiedByName: apostille.verified_by_name,
-            verifiedAt: apostille.verified_at,
-            authorityName: apostille.authority_name,
+            certificateNumber: upload.certificate_number,
+            certificatePath: upload.certificate_pdf_path || upload.certificate_data?.pdfUrl,
+            userName: upload.user_name,
+            userEmail: upload.user_email,
+            verifiedByName: upload.verified_by_name,
+            verifiedAt: upload.verified_at,
+            authorityName: upload.authority_name,
             documents: documents
         });
         
