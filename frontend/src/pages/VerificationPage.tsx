@@ -51,17 +51,18 @@ const VerificationPage = () => {
   const abortController = useRef<AbortController | null>(null);
 
   // Helper to get signature image URL
-  const getSignatureImageUrl = (signatureImage: string) => {
+ const getSignatureImageUrl = (signatureImage: string) => {
   if (!signatureImage) return '';
   if (signatureImage.startsWith('http')) return signatureImage;
   if (signatureImage.startsWith('/')) return signatureImage;
-  // Use API URL instead of frontend path
-  return `${API_URL}/signatures/${signatureImage}`; // ✅ Backend API path
+  // Fixed: Added /assets and /documents to path
+  return `${API_URL}/assets/signatures/documents/${signatureImage}`;
 };
 
-  // Helper to get attested image URL
-  const getAttestedImageUrl = () => {
-  return `${API_URL}/signatures/attested_text.png`;
+// Helper to get attested image URL
+const getAttestedImageUrl = () => {
+  // Fixed: Added /assets and /documents to path
+  return `${API_URL}/assets/signatures/documents/attested_text.png`;
 };
   const fetchData = useCallback(async () => {
     if (!certificateNumber) {
@@ -86,7 +87,7 @@ const VerificationPage = () => {
       setError(null);
       
       // FIXED: Use the correct API URL with full base URL
-      const response = await axios.get(`${API_URL}/files/verify/${certificateNumber}`, {
+      const response = await axios.get(`${API_URL}/api/files/verify/${certificateNumber}`, {
         signal: abortController.current.signal,
         headers: {
           'Content-Type': 'application/json'
