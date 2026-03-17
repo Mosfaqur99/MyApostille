@@ -447,7 +447,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 });
 
 // GET /verify/:certificateNumber - PUBLIC ROUTE
-router.get('/verify/:certificateNumber', async (req, res) => {
+router.get('/files/verify/:certificateNumber', async (req, res) => {
     try {
         const { certificateNumber } = req.params;
         

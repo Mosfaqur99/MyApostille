@@ -5,7 +5,6 @@ import axios from "axios"; // Remove this if you have a custom api instance
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 import { toast } from 'react-toastify';
-import attestedImage from '../assets/signatures/documents/attested_text.png';
 
 // Use your existing api instance OR create one with correct base URL
 const API_URL = process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com/api';
