@@ -408,7 +408,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
     }
 });
 
-// POST /verify/:id - Process verification (when admin clicks verify)
+// GET /verify/:certificateNumber - PUBLIC ROUTE
 router.get('/verify/:certificateNumber', async (req, res) => {
     try {
         const { certificateNumber } = req.params;
@@ -568,7 +568,7 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.a
       return res.status(400).json({ message: 'Please re-upload documents' });
     }
 
-    // Step 3: Generate certificate number
+    // Step 3: Generate certificate number (MUST match the format used elsewhere)
     const certNumber = `BD-APO-${Date.now()}-${uploadId}`;
 
     // Step 4: Generate certificate PDF
