@@ -7,6 +7,7 @@ import Footer from "../components/Footer";
 import { toast } from 'react-toastify';
 
 const API_URL = process.env.REACT_APP_API_URL || 'https://bangladesh-apostille-api.onrender.com/api';
+const normalizedApiUrl = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
 
 interface SignerData {
   id?: number;
@@ -46,16 +47,17 @@ const VerificationPage = () => {
   const fetchedCerts = useRef<Set<string>>(new Set());
   const abortController = useRef<AbortController | null>(null);
 
-  const getSignatureImageUrl = (signatureImage: string) => {
-    if (!signatureImage) return '';
-    if (signatureImage.startsWith('http')) return signatureImage;
-    const baseUrl = API_URL.endsWith('/api') ? API_URL.slice(0, -4) : API_URL;
-    return `${baseUrl}/signatures/${signatureImage}`;
-  };
+const getSignatureImageUrl = (signatureImage: string) => {
+  if (!signatureImage) return '';
+  if (signatureImage.startsWith('http')) return signatureImage;
+  // Use normalizedApiUrl without /api for static assets
+  const baseUrl = normalizedApiUrl.slice(0, -4);
+  return `${baseUrl}/api/signatures/${signatureImage}`;
+};
 
   const getAttestedImageUrl = () => {
-    const baseUrl = API_URL.endsWith('/api') ? API_URL.slice(0, -4) : API_URL;
-    return `${baseUrl}/signatures/attested_text.png`;
+    const baseUrl = normalizedApiUrl.slice(0, -4);
+    return `${baseUrl}/api/signatures/attested_text.png`;
   };
 
   const fetchData = useCallback(async () => {
@@ -80,7 +82,7 @@ const VerificationPage = () => {
       setLoading(true);
       setError(null);
       
-      const response = await axios.get(`${API_URL}/files/verify/${certificateNumber}`, {
+      const response = await axios.get(`${normalizedApiUrl}/files/verify/${certificateNumber}`, {
         signal: abortController.current.signal,
         headers: {
           'Content-Type': 'application/json'
