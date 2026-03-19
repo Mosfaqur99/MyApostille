@@ -607,7 +607,7 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.a
     }
 
     // Step 3: Generate certificate number (MUST match the format used elsewhere)
-    const certNumber = `BD-APO-${Date.now()}-${uploadId}`;
+    const certNumber = `${Date.now()}-${uploadId}`;
 
     // Step 4: Generate certificate PDF
     const certificateData = {
