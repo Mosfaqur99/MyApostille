@@ -50,12 +50,12 @@ const VerificationPage = () => {
     if (!signatureImage) return '';
     if (signatureImage.startsWith('http')) return signatureImage;
     const baseUrl = API_URL.endsWith('/api') ? API_URL.slice(0, -4) : API_URL;
-    return `${baseUrl}/api/signatures/${signatureImage}`;
+    return `${baseUrl}/signatures/${signatureImage}`;
   };
 
   const getAttestedImageUrl = () => {
     const baseUrl = API_URL.endsWith('/api') ? API_URL.slice(0, -4) : API_URL;
-    return `${baseUrl}/api/signatures/attested_text.png`;
+    return `${baseUrl}/signatures/attested_text.png`;
   };
 
   const fetchData = useCallback(async () => {

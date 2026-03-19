@@ -20,6 +20,21 @@ function generateCertNumber() {
   }
   return num;
 }
+async function generateUniqueCertNumber(client) {
+  let certNumber;
+  let exists = true;
+  
+  while (exists) {
+    certNumber = generateCertNumber();
+    const check = await client.query(
+      'SELECT id FROM uploads WHERE certificate_number = $1',
+      [certNumber]
+    );
+    exists = check.rows.length > 0;
+  }
+  
+  return certNumber;
+}
 
 // Helper: Delete file (async)
 async function deleteFileAsync(filePath) {
@@ -607,7 +622,7 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.a
     }
 
     // Step 3: Generate certificate number (MUST match the format used elsewhere)
-    const certNumber = `${Date.now()}-${uploadId}`;
+    const certNumber = await generateUniqueCertNumber(client);
 
     // Step 4: Generate certificate PDF
     const certificateData = {
