@@ -202,7 +202,7 @@ const getSignatureImageUrl = (signatureImage: string) => {
       <main className="flex-grow w-full">
         <div className="w-full space-y-6">
           
-          {/* E-Apostille Certificate Section */}
+         {/* E-Apostille Certificate Section */}
 {hasCertificate && (
   <div className="bg-white shadow-sm overflow-hidden">
     <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
@@ -210,16 +210,17 @@ const getSignatureImageUrl = (signatureImage: string) => {
       <span className="text-xs text-gray-500">প্রিভিউ</span>
     </div>
     <div className="p-4">
-      {/* Smaller, left-aligned PDF viewer */}
-      <div className="w-full max-w-2xl bg-white">
+      {/* PDF viewer - full width on mobile, constrained on desktop */}
+      <div className="w-full max-w-2xl bg-white overflow-hidden">
         <embed
-          src={`${verificationData.certificatePath}#toolbar=0&navpanes=0`}
+          src={`${verificationData.certificatePath}#toolbar=0&navpanes=0&zoom=FitH`}
           type="application/pdf"
-          className="w-full h-[350px] sm:h-[450px]"
+          className="w-full h-[400px] sm:h-[500px]"
+          style={{ width: '100%', maxWidth: '100%' }}
         />
       </div>
       
-      {/* Smaller download button */}
+      {/* Download button */}
       <div className="mt-4 max-w-2xl">
         <button 
           onClick={handleDownloadCertificate} 
