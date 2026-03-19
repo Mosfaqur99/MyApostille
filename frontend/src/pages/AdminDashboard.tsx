@@ -394,15 +394,16 @@ const AdminDashboard = () => {
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">আবেদন নং</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ব্যবহারকারী</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">সার্টিফিকেট নম্বর</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">অনুমোদনকারী</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">তারিখ</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">কার্যক্রম</th>
-                  </tr>
-                </thead>
+  <tr>
+    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">আবেদন নং</th>
+    {/* Certificate Number moved to 2nd position */}
+    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">সার্টিফিকেট নম্বর</th>
+    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ব্যবহারকারী</th>
+    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">অনুমোদনকারী</th>
+    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">তারিখ</th>
+    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">কার্যক্রম</th>
+  </tr>
+</thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {completedUploads.length === 0 ? (
                     <tr>
@@ -414,18 +415,27 @@ const AdminDashboard = () => {
                   ) : (
                     completedUploads.map((upload) => (
                       <tr key={upload.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">{upload.id}</td>
-                        <td className="px-4 py-3 text-gray-700">{upload.user_name}</td>
-                        <td className="px-4 py-3 text-blue-600 font-medium">
-                          {upload.certificate_number || 'N/A'}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-medium">{upload.verified_by_name}</div>
-                          <div className="text-xs text-gray-500">{upload.certificate_data?.authorityName || 'N/A'}</div>
-                        </td>
-                        <td className="px-4 py-3 text-gray-600 text-sm">
-                          {new Date(upload.verified_at).toLocaleDateString('bn-BD')}
-                        </td>
+    {/* 1. Upload ID */}
+    <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">{upload.id}</td>
+    
+    {/* 2. Certificate Number - MOVED UP */}
+    <td className="px-4 py-3 text-blue-600 font-medium">
+      {upload.certificate_number || 'N/A'}
+    </td>
+    
+    {/* 3. User - MOVED DOWN */}
+    <td className="px-4 py-3 text-gray-700">{upload.user_name}</td>
+    
+    {/* 4. Verifier */}
+    <td className="px-4 py-3">
+      <div className="font-medium">{upload.verified_by_name}</div>
+      <div className="text-xs text-gray-500">{upload.certificate_data?.authorityName || 'N/A'}</div>
+    </td>
+    
+    {/* 5. Date */}
+    <td className="px-4 py-3 text-gray-600 text-sm">
+      {new Date(upload.verified_at).toLocaleDateString('bn-BD')}
+    </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2 flex-wrap">
                             {/* View/Verify Button */}
@@ -441,7 +451,7 @@ const AdminDashboard = () => {
                             </button>
                             
                             {/* Download Button for COMPLETED - Simple direct download */}
-                            <button
+                            {/* <button
                               onClick={() => handleDownload(upload.id, 'all')}
                               className="inline-flex items-center px-3 py-1 border border-blue-600 text-blue-700 text-xs font-medium rounded-full bg-blue-50 hover:bg-blue-100 transition-colors"
                             >
@@ -449,7 +459,7 @@ const AdminDashboard = () => {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                               </svg>
                               ডাউনলোড
-                            </button>
+                            </button> */}
                             
                             {/* Delete Button */}
                             <button
