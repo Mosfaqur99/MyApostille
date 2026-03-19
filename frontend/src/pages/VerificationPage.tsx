@@ -201,36 +201,37 @@ const VerificationPage = () => {
         <div className="w-full space-y-6">
           
           {/* E-Apostille Certificate Section */}
-          {hasCertificate && (
-            <div className="bg-white shadow-sm overflow-hidden">
-              <div className="bg-gray-50 px-4 py-4 border-b border-gray-200 flex justify-between items-center">
-                <h2 className="text-lg font-bold text-gray-800">ই-আপোস্টিল সার্টিফিকেট</h2>
-                <span className="text-sm text-gray-500">প্রিভিউ</span>
-              </div>
-              <div className="p-0">
-                <div className="w-full bg-white">
-                  <embed
-                   src= {`${verificationData.certificatePath}#toolbar=0&navpanes=0&scrollbar=0`}
-            
-                    type="application/pdf"
-                    className="w-full h-[500px] sm:h-[600px]"
-                  />
-                </div>
-                
-                <div className="p-4">
-                  <button 
-                    onClick={handleDownloadCertificate} 
-                    className="w-full bg-black text-white py-4 font-bold text-lg hover:bg-green-700 transition-all duration-300 shadow-lg flex items-center justify-center gap-3"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    📥 সার্টিফিকেট ডাউনলোড করুন (PDF)
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+{hasCertificate && (
+  <div className="bg-white shadow-sm overflow-hidden">
+    <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+      <h2 className="text-base font-bold text-gray-800">ই-আপোস্টিল সার্টিফিকেট</h2>
+      <span className="text-xs text-gray-500">প্রিভিউ</span>
+    </div>
+    <div className="p-4">
+      {/* Smaller, left-aligned PDF viewer */}
+      <div className="w-full max-w-2xl bg-white">
+        <embed
+          src={`${verificationData.certificatePath}#toolbar=0&navpanes=0`}
+          type="application/pdf"
+          className="w-full h-[350px] sm:h-[450px]"
+        />
+      </div>
+      
+      {/* Smaller download button */}
+      <div className="mt-4 max-w-2xl">
+        <button 
+          onClick={handleDownloadCertificate} 
+          className="w-full bg-black text-white py-2 font-bold text-sm rounded-lg hover:bg-green-700 transition-all duration-300 shadow flex items-center justify-center gap-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          📥 সার্টিফিকেট ডাউনলোড করুন (PDF)
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
           {/* Attested Documents Section */}
           {hasDocuments && (

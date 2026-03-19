@@ -574,7 +574,7 @@ router.get('/files/verify/:certificateNumber', async (req, res) => {
 });
 
 // POST /verify/:id - PROTECTED ROUTE (Admin only)
-router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.array('reuploadedFiles', 10), async (req, res) => {
+router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.array('reuploadedFiles'), async (req, res) => {
   const uploadId = req.params.id;
   
   const client = await pool.connect();
