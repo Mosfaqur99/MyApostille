@@ -54,15 +54,19 @@ const VerificationPage = () => {
  const getSignatureImageUrl = (signatureImage: string) => {
   if (!signatureImage) return '';
   if (signatureImage.startsWith('http')) return signatureImage;
-  if (signatureImage.startsWith('/')) return signatureImage;
-  // Fixed: Added /assets and /documents to path
-  return `${API_URL}/assets/signatures/documents/${signatureImage}`;
+  
+  // Remove /api from API_URL and add correct path
+  const baseUrl = API_URL.endsWith('/api') 
+    ? API_URL.slice(0, -4) // Remove '/api'
+    : API_URL;
+    
+  return `${baseUrl}/api/signatures/${signatureImage}`;
 };
 
 // Helper to get attested image URL
 const getAttestedImageUrl = () => {
-  // Fixed: Added /assets and /documents to path
-  return `${API_URL}/assets/signatures/documents/attested_text.png`;
+  const baseUrl = API_URL.endsWith('/api') ? API_URL.slice(0, -4) : API_URL;
+  return `${baseUrl}/api/signatures/attested_text.png`;
 };
   const fetchData = useCallback(async () => {
     if (!certificateNumber) {
@@ -87,7 +91,7 @@ const getAttestedImageUrl = () => {
       setError(null);
       
       // FIXED: Use the correct API URL with full base URL
-      const response = await axios.get(`${API_URL}/api/files/verify/${certificateNumber}`, {
+      const response = await axios.get(`${API_URL}/files/verify/${certificateNumber}`, {
         signal: abortController.current.signal,
         headers: {
           'Content-Type': 'application/json'
@@ -207,7 +211,7 @@ const getAttestedImageUrl = () => {
         <div className="max-w-5xl mx-auto space-y-8">
           
           {/* Header Card */}
-          <div className="bg-white rounded-2xl shadow-sm p-6 border border-green-100">
+          {/* <div className="bg-white rounded-2xl shadow-sm p-6 border border-green-100">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
               <div>
                 <h1 className="text-2xl font-black text-green-800 flex items-center gap-2">
@@ -239,7 +243,7 @@ const getAttestedImageUrl = () => {
                  <p className="text-sm text-blue-600">{verificationData.authorityName || 'N/A'}</p>
                </div>
             </div>
-          </div>
+          </div> */}
 
           {/* E-Apostille Certificate Section */}
           {hasCertificate && (
@@ -259,7 +263,7 @@ const getAttestedImageUrl = () => {
                 
                 <button 
                   onClick={handleDownloadCertificate} 
-                  className="w-full mt-6 bg-green-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-green-700 transition-all duration-300 shadow-lg hover:shadow-xl flex items-center justify-center gap-3"
+                  className="w-full mt-6 bg-black text-white py-4 rounded-xl font-bold text-lg hover:bg-green-700 transition-all duration-300 shadow-lg hover:shadow-xl flex items-center justify-center gap-3"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -377,14 +381,14 @@ const getAttestedImageUrl = () => {
 
           <button 
             onClick={() => navigate(-1)} 
-            className="w-full bg-white border-2 border-green-600 text-green-700 py-3.5 rounded-xl font-bold text-lg hover:bg-green-50 transition-all duration-300 shadow-md hover:shadow-lg flex items-center justify-center gap-3 group"
+            className="w-full bg-white border-2 border-black text-black py-3.5 rounded-xl font-bold text-lg hover:bg-green-50 transition-all duration-300 shadow-md hover:shadow-lg flex items-center justify-center gap-3 group"
           >
             <svg 
               xmlns="http://www.w3.org/2000/svg" 
               className="h-5 w-5 group-hover:-translate-x-1 transition-transform" 
               fill="none" 
               viewBox="0 0 24 24" 
-              stroke="currentColor"
+              stroke="black"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>

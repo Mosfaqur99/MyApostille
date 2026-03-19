@@ -84,7 +84,7 @@ const uploadVerified = multer({
 
 // Upload files
 // Upload files - CLOUDINARY VERSION
-router.post('/upload', verifyToken, uploadOriginal.array('files', 10), async (req, res) => {
+router.post('/upload', verifyToken, uploadOriginal.array('files'), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: 'No files uploaded' });
@@ -941,7 +941,7 @@ router.get('/certificates/:filename', async (req, res) => {
 
 // PATCH endpoint for partial file updates
 // PATCH endpoint for partial file updates - CLOUDINARY VERSION
-router.patch('/edit/:id', verifyToken, uploadOriginal.array('files', 10), async (req, res) => {
+router.patch('/edit/:id', verifyToken, uploadOriginal.array('files'), async (req, res) => {
   try {
     const { id } = req.params;
     const { removeIndices } = req.body;
