@@ -454,9 +454,9 @@ router.get('/files/verify/:certificateNumber', async (req, res) => {
         // Get upload with user info
         const uploadQuery = `
             SELECT u.*, 
-                   usr.full_name as user_name, 
+                   usr.name as user_name, 
                    usr.email as user_email,
-                   verifier.full_name as verified_by_name
+                   verifier.name as verified_by_name
             FROM uploads u
             JOIN users usr ON u.user_id = usr.id
             LEFT JOIN users verifier ON u.verified_by = verifier.id
