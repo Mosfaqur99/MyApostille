@@ -7,6 +7,7 @@ const { verifyToken, authorizeRole } = require('../middleware/auth');
 const pool = require('../config/db');
 const AdmZip = require('adm-zip');
 const { createStorage } = require('../config/cloudinary');
+const { fromBuffer } = require('pdf2pic');
 
 // Import generators and processors
 const { generateEApostilleCertificate } = require('../utils/certificateGenerator');
@@ -61,6 +62,41 @@ async function ensureDirAsync(dirPath) {
   }
 }
 
+
+async function convertCertificatePdfToImage(pdfBuffer, options = {}) {
+  const {
+    format = 'png',
+    width = 800,
+    quality = 90,
+    density = 150
+  } = options;
+
+  try {
+    const convert = fromBuffer(pdfBuffer, {
+      density: density,
+      format: format,
+      width: width,
+      quality: quality,
+      preserveAspectRatio: true
+    });
+
+    // Convert only first page (1)
+    const images = await convert.bulk(1, { responseType: 'buffer' });
+    
+    if (!images || images.length === 0) {
+      throw new Error('No images generated from PDF');
+    }
+    
+    return {
+      buffer: images[0].buffer,
+      format: format,
+      base64: `data:image/${format};base64,${images[0].buffer.toString('base64')}`
+    };
+  } catch (error) {
+    console.error('Certificate PDF conversion error:', error);
+    throw new Error(`Failed to convert certificate PDF to image: ${error.message}`);
+  }
+}
 // ========== MULTER CONFIGURATION ==========
 
 // Create storage instances for different purposes
@@ -713,6 +749,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 });
 
 // GET /verify/:certificateNumber - PUBLIC ROUTE
+// GET /files/verify/:certificateNumber - PUBLIC ROUTE
 router.get('/files/verify/:certificateNumber', async (req, res) => {
     try {
         const { certificateNumber } = req.params;
@@ -819,9 +856,66 @@ router.get('/files/verify/:certificateNumber', async (req, res) => {
             }];
         }
 
+        // ✅ CONVERT CERTIFICATE PDF TO IMAGE
+        let certificateImageUrl = null;
+        
+        if (upload.certificate_pdf_path) {
+            try {
+                const axios = require('axios');
+                
+                // Download certificate PDF from Cloudinary
+                const response = await axios.get(upload.certificate_pdf_path, {
+                    responseType: 'arraybuffer',
+                    timeout: 30000
+                });
+                
+                const pdfBuffer = Buffer.from(response.data);
+                
+                // Convert to image
+                const imageResult = await convertCertificatePdfToImage(pdfBuffer, {
+                    format: 'png',
+                    width: 800,      // Good quality for display
+                    density: 150,    // Decent resolution
+                    quality: 95
+                });
+                
+                // Upload image to Cloudinary (temporary or permanent)
+                const { cloudinary } = require('../config/cloudinary');
+                const streamifier = require('streamifier');
+                
+                const uploadResult = await new Promise((resolve, reject) => {
+                    const uploadStream = cloudinary.uploader.upload_stream(
+                        {
+                            folder: 'apostille/certificate-images',
+                            public_id: `cert-${certificateNumber}`,
+                            resource_type: 'image',
+                            format: 'png',
+                            // Optional: Set expiration if you want auto-cleanup
+                            // type: 'upload'
+                        },
+                        (error, result) => {
+                            if (error) reject(error);
+                            else resolve(result);
+                        }
+                    );
+                    
+                    streamifier.createReadStream(imageResult.buffer).pipe(uploadStream);
+                });
+                
+                certificateImageUrl = uploadResult.secure_url;
+                console.log(`Certificate image generated: ${certificateImageUrl}`);
+                
+            } catch (convError) {
+                console.error('Failed to convert certificate to image:', convError);
+                // Don't fail the request, just don't include the image
+                certificateImageUrl = null;
+            }
+        }
+
         res.json({
             certificateNumber: upload.certificate_number,
-            certificatePath: upload.certificate_pdf_path,
+            certificatePath: upload.certificate_pdf_path,      // Original PDF
+            certificateImageUrl: certificateImageUrl,        // ✅ New image URL
             userName: upload.user_name,
             userEmail: upload.user_email,
             verifiedByName: upload.verified_by_name,

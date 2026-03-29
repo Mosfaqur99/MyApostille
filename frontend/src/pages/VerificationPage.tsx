@@ -8,6 +8,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faDownload } from "@fortawesome/free-solid-svg-icons";
 
 
+
 const API_URL =
   process.env.REACT_APP_API_URL ||
   "https://bangladesh-apostille-api.onrender.com/api";
@@ -32,6 +33,7 @@ interface DocumentData {
 interface VerificationData {
   certificateNumber: string;
   certificatePath: string;
+  certificateImageUrl?: string;
   documents: DocumentData[];
   userName: string;
   userEmail: string;
@@ -43,7 +45,8 @@ interface VerificationData {
 const VerificationPage = () => {
   const { certificateNumber } = useParams();
   const navigate = useNavigate();
-
+  const [numPages, setNumPages] = useState<number>(0);
+const [pdfLoading, setPdfLoading] = useState(true);
   const [verificationData, setVerificationData] =
     useState<VerificationData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -221,64 +224,58 @@ const VerificationPage = () => {
         <div className="container mx-auto">
           <div className="w-full space-y-6">
             {/* E-Apostille Certificate Section */}
-            {hasCertificate && (
-              <div className="bg-white shadow-sm overflow-hidden">
-                <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-                  <h2 className="text-xl font-bold text-gray-800">
-                    অ্যাপোস্টিল
-                  </h2>
-                </div>
-                <div className="p-4">
-                  {/* PDF viewer - full width on mobile, constrained on desktop */}
-                  {/* Certificate PDF - No scrollbars */}
-<div className="flex justify-center">
-  <div 
-    className="bg-white mx-4 shadow-md rounded-md relative"
-    style={{ 
-      width: '405px', 
-      height: '571px',
-      overflow: 'hidden' // Hides any overflowing scrollbars
-    }}
-  >
-    <embed
-      src={`${verificationData.certificatePath}#toolbar=0&navpanes=0&zoom=page-fit&scrollbar=0`}
-      type="application/pdf"
-      width="100%"
-      height="100%"
-      style={{ 
-        border: 'none',
-        display: 'block'
-      }}
-    />
-    {/* Overlay blocks scroll wheel and prevents scrollbar interaction */}
-    <div 
-      className="absolute inset-0 bg-transparent"
-      style={{ pointerEvents: 'none' }}
-    />
-  </div>
-</div>
-                  {/* <div className="w-full max-w-2xl bg-white overflow-hidden">
-                    <embed
-                      src={`${verificationData.certificatePath}#toolbar=0&navpanes=0&zoom=page-fit`}
-                      type="application/pdf"
-                      className="w-full h-full sm:h-[993px]"
-                      style={{ width: "100%", maxWidth: "100%" }}
-                    />
-                  </div> */}
+            // In your VerificationPage.tsx, replace the certificate section:
 
-                  {/* Download button */}
-                  <div className="max-w-2xl flex justify-end">
-                    <button
-                      onClick={handleDownloadCertificate}
-                      className="w-72 mt-4 bg-slate-900 text-white py-2 font-bold text-sm rounded-lg hover:bg-green-700 transition-all duration-300 shadow flex items-center justify-center gap-2"
-                    >
-                      <FontAwesomeIcon icon={faDownload} />
-                      অ্যাপোস্টিল ডাউনলোড করুন
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+{hasCertificate && (
+  <div className="bg-white shadow-sm overflow-hidden">
+    <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+      <h2 className="text-xl font-bold text-gray-800">
+        অ্যাপোস্টিল
+      </h2>
+    </div>
+    <div className="p-4">
+      {/* ✅ Show certificate as image instead of PDF */}
+      {verificationData?.certificateImageUrl ? (
+        <div className="flex justify-center">
+          <div className="bg-white mx-4 shadow-md rounded-md overflow-hidden max-w-full">
+            <img
+              src={verificationData.certificateImageUrl}
+              alt="E-Apostille Certificate"
+              className="w-full h-auto max-w-[600px]"
+              style={{ maxWidth: '100%' }}
+            />
+          </div>
+        </div>
+      ) : (
+        // Fallback if image conversion failed
+        <div className="flex justify-center p-8 bg-gray-50 rounded-md">
+          <p className="text-gray-600">
+            Certificate image not available. 
+            <a 
+              href={verificationData?.certificatePath} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline ml-2"
+            >
+              View PDF
+            </a>
+          </p>
+        </div>
+      )}
+
+      {/* Download button (PDF) */}
+      <div className="max-w-2xl flex justify-end">
+        <button
+          onClick={handleDownloadCertificate}
+          className="w-72 mt-4 bg-slate-900 text-white py-2 font-bold text-sm rounded-lg hover:bg-green-700 transition-all duration-300 shadow flex items-center justify-center gap-2"
+        >
+          <FontAwesomeIcon icon={faDownload} />
+          অ্যাপোস্টিল ডাউনলোড করুন
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
             {/* Attested Documents Section */}
             {hasDocuments && (
