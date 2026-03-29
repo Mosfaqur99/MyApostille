@@ -477,6 +477,103 @@ router.get('/completed', verifyToken, authorizeRole('admin'), async (req, res) =
   }
 });
 
+
+// Add more reuploaded files to existing verified upload - ADMIN ONLY
+router.post('/verify/:id/add-files', verifyToken, authorizeRole('admin'), uploadVerified.array('reuploadedFiles'), async (req, res) => {
+  const uploadId = req.params.id;
+  
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ message: 'No files uploaded' });
+    }
+
+    // Get existing upload
+    const existingUpload = await pool.query(
+      'SELECT * FROM uploads WHERE id = $1',
+      [uploadId]
+    );
+
+    if (existingUpload.rows.length === 0) {
+      return res.status(404).json({ message: 'Upload not found' });
+    }
+
+    const upload = existingUpload.rows[0];
+
+    // Only allow adding files to verified uploads
+    if (upload.status !== 'verified') {
+      return res.status(400).json({ message: 'Upload must be verified first' });
+    }
+
+    // Parse existing reuploaded files
+    let existingReuploaded = [];
+    try {
+      if (upload.reuploaded_file_paths) {
+        existingReuploaded = typeof upload.reuploaded_file_paths === 'string'
+          ? JSON.parse(upload.reuploaded_file_paths)
+          : upload.reuploaded_file_paths;
+      }
+    } catch (e) {
+      console.warn('Failed to parse existing reuploaded files:', e);
+    }
+
+    // Import cloudinary if not already available
+    const { cloudinary } = require('../config/cloudinary');
+    const streamifier = require('streamifier');
+
+    // Upload new files to Cloudinary
+    const newUrls = [];
+    for (const file of req.files) {
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            {
+              folder: 'apostille/verified',
+              resource_type: 'auto'
+            },
+            (error, result) => {
+              if (error) reject(error);
+              else resolve(result);
+            }
+          );
+          streamifier.createReadStream(file.buffer).pipe(uploadStream);
+        });
+        newUrls.push(result.secure_url);
+      } catch (uploadErr) {
+        console.error('Cloudinary upload failed:', uploadErr);
+        continue;
+      }
+    }
+
+    if (newUrls.length === 0) {
+      return res.status(500).json({ message: 'Failed to upload files to cloud storage' });
+    }
+
+    // Merge and update
+    const updatedReuploaded = [...existingReuploaded, ...newUrls];
+
+    await pool.query(
+      `UPDATE uploads 
+       SET reuploaded_file_paths = $1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [JSON.stringify(updatedReuploaded), uploadId]
+    );
+
+    res.json({
+      message: `${newUrls.length} files added successfully`,
+      totalFiles: updatedReuploaded.length,
+      addedUrls: newUrls
+    });
+
+  } catch (err) {
+    console.error('Add verify files error:', err);
+    res.status(500).json({
+      message: 'Failed to add files',
+      error: err.message
+    });
+  }
+});
+
 // Get additional signers
 router.get('/additional-signers', verifyToken, authorizeRole('admin'), async (req, res) => {
   try {

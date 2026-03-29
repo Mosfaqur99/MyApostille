@@ -137,22 +137,33 @@ const AdminDashboard = () => {
   };
 
   const handleVerify = async () => {
-    if (!selectedUpload) return;
-    
-    if (!certificateData.documentIssuer || !certificateData.actingCapacity || 
-        !certificateData.documentLocation || !certificateData.certificateLocation || 
-        !certificateData.certificateDate || !certificateData.authorityName) {
-      toast.error('All certificate fields are required');
-      return;
-    }
+  if (!selectedUpload) return;
+  
+  if (!certificateData.documentIssuer || !certificateData.actingCapacity || 
+      !certificateData.documentLocation || !certificateData.certificateLocation || 
+      !certificateData.certificateDate || !certificateData.authorityName) {
+    toast.error('All certificate fields are required');
+    return;
+  }
 
-    if (reuploadedFiles.length === 0) {
-      toast.error('Please re-upload documents with stamps (Field 8)');
-      return;
-    }
+  if (reuploadedFiles.length === 0) {
+    toast.error('Please re-upload documents with stamps (Field 8)');
+    return;
+  }
 
-    setIsVerifying(true);
-    try {
+  // BATCH UPLOAD for more than 10 files
+  const BATCH_SIZE = 10;
+  const batches = [];
+  
+  for (let i = 0; i < reuploadedFiles.length; i += BATCH_SIZE) {
+    batches.push(reuploadedFiles.slice(i, i + BATCH_SIZE));
+  }
+
+  setIsVerifying(true);
+  
+  try {
+    // For single batch (10 or fewer files), use original endpoint
+    if (batches.length === 1) {
       const formData = new FormData();
       
       reuploadedFiles.forEach(file => {
@@ -174,23 +185,74 @@ const AdminDashboard = () => {
       
       toast.success('e-APOSTILLE Certificate and signed documents generated successfully!');
       
-      const [pendingRes, completedRes] = await Promise.all([
-        api.get('/files/pending'),
-        api.get('/files/completed')
-      ]);
+    } else {
+      // MULTIPLE BATCHES: Use new endpoint for additional files
+      toast.info(`Uploading ${reuploadedFiles.length} files in ${batches.length} batches...`);
       
-      setPendingUploads(pendingRes.data);
-      setCompletedUploads(completedRes.data);
-      setSelectedUpload(null);
-      setSelectedSigners([]);
-      setReuploadedFiles([]);
-    } catch (error: any) {
-      console.error('Verification failed', error);
-      toast.error(error.response?.data?.message || error.response?.data?.error || 'Certificate generation failed');
-    } finally {
-      setIsVerifying(false);
+      // First batch with certificate generation
+      const firstBatch = batches[0];
+      const formData = new FormData();
+      
+      firstBatch.forEach(file => {
+        formData.append('reuploadedFiles', file);
+      });
+      
+      formData.append('documentIssuer', certificateData.documentIssuer);
+      formData.append('documentTitle', certificateData.actingCapacity);
+      formData.append('documentLocation', certificateData.documentLocation);
+      formData.append('certificateLocation', certificateData.certificateLocation);
+      formData.append('certificateDate', certificateData.certificateDate);
+      formData.append('authorityName', certificateData.authorityName);
+      formData.append('additionalSigners', JSON.stringify(selectedSigners));
+      formData.append('totalBatches', batches.length.toString());
+      
+      const response = await api.post(
+        `/files/verify/${selectedUpload.id}`,
+        formData
+      );
+      
+      const certificateNumber = response.data.certificateNumber;
+      
+      // Subsequent batches - add files only
+      for (let i = 1; i < batches.length; i++) {
+        toast.info(`Uploading batch ${i + 1}/${batches.length}...`);
+        
+        // Delay between batches
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        const batchFormData = new FormData();
+        batches[i].forEach(file => {
+          batchFormData.append('reuploadedFiles', file);
+        });
+        
+        await api.post(
+          `/files/verify/${selectedUpload.id}/add-files`,
+          batchFormData
+        );
+      }
+      
+      toast.success(`e-APOSTILLE generated with ${reuploadedFiles.length} documents!`);
     }
-  };
+
+    // Refresh data
+    const [pendingRes, completedRes] = await Promise.all([
+      api.get('/files/pending'),
+      api.get('/files/completed')
+    ]);
+    
+    setPendingUploads(pendingRes.data);
+    setCompletedUploads(completedRes.data);
+    setSelectedUpload(null);
+    setSelectedSigners([]);
+    setReuploadedFiles([]);
+    
+  } catch (error: any) {
+    console.error('Verification failed', error);
+    toast.error(error.response?.data?.message || error.response?.data?.error || 'Certificate generation failed');
+  } finally {
+    setIsVerifying(false);
+  }
+};
 
   const handleDeleteUpload = async (uploadId: number) => {
     if (!window.confirm('আপনি কি নিশ্চিত আপনি এই আবেদনটি মুছে ফেলতে চান?')) {
