@@ -926,21 +926,22 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.a
     const streamifier = require('streamifier');
     const { cloudinary } = require('../config/cloudinary');
     
-    const certUploadResult = await new Promise((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        {
-          folder: 'apostille/certificates',
-          public_id: `certificate-${certNumber}`,
-          resource_type: 'raw',
-          format: 'pdf'
-        },
-        (error, result) => {
-          if (error) reject(error);
-          else resolve(result);
-        }
-      );
-      streamifier.createReadStream(certResult.pdfBytes).pipe(uploadStream);
-    });
+    // ✅ NEW - Allows transformations
+const certUploadResult = await new Promise((resolve, reject) => {
+  const uploadStream = cloudinary.uploader.upload_stream(
+    {
+      folder: 'apostille/certificates',
+      public_id: `certificate-${certNumber}`,
+      resource_type: 'image',  // ✅ CORRECT - allows PDF transformations
+      format: 'pdf'
+    },
+    (error, result) => {
+      if (error) reject(error);
+      else resolve(result);
+    }
+  );
+  streamifier.createReadStream(certResult.pdfBytes).pipe(uploadStream);
+});
     
     const certUrl = certUploadResult.secure_url;
 
