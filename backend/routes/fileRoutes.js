@@ -99,7 +99,12 @@ const uploadVerified = multer({
 
 // Upload files
 // Upload files - CLOUDINARY VERSION
+// Upload files - FIXED VERSION
 router.post('/upload', verifyToken, uploadOriginal.array('files'), async (req, res) => {
+  console.log('=== UPLOAD REQUEST ===');
+  console.log('Files received:', req.files?.length || 0);
+  console.log('User:', req.user?.id);
+
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: 'No files uploaded' });
@@ -109,8 +114,6 @@ router.post('/upload', verifyToken, uploadOriginal.array('files'), async (req, r
     const hasImages = req.files.some(f => f.mimetype.startsWith('image/'));
     
     if (hasPDF && hasImages) {
-      // Cloudinary files are already uploaded, but we should cleanup if validation fails
-      // (Optional: delete from Cloudinary using public_id)
       return res.status(400).json({ message: 'Cannot mix PDF and images' });
     }
     
@@ -118,15 +121,19 @@ router.post('/upload', verifyToken, uploadOriginal.array('files'), async (req, r
       return res.status(400).json({ message: 'Only one PDF file allowed per upload' });
     }
 
-    // req.files from Cloudinary storage contains URLs directly
+    // Build file data array safely
     const fileData = req.files.map(file => ({
-      path: file.path,  // This is now Cloudinary URL: https://res.cloudinary.com/...
+      path: file.path || file.secure_url,  // Handle both multer-cloudinary formats
       original_name: file.originalname,
-      public_id: file.filename  // Cloudinary public ID for future deletion
+      public_id: file.filename || file.public_id
     }));
-    
+
+    console.log('File data prepared:', fileData.length, 'files');
+
     const file_type = hasPDF ? 'pdf' : (req.files.length > 1 ? 'multi-image' : 'image');
     const original_filename = fileData.map(f => f.original_name).join(', ');
+
+    console.log('Inserting to database...');
 
     const newUpload = await pool.query(
       `INSERT INTO uploads 
@@ -136,20 +143,47 @@ router.post('/upload', verifyToken, uploadOriginal.array('files'), async (req, r
       [
         req.user.id,
         original_filename,
-        fileData[0].path,  // Cloudinary URL
-        JSON.stringify(fileData),  // Stores array with URLs and public_ids
+        fileData[0].path,
+        JSON.stringify(fileData),  // Ensure proper JSON stringification
         file_type,
         'pending'
       ]
     );
 
+    console.log('Database insert successful, ID:', newUpload.rows[0].id);
+
     res.status(201).json({
       message: 'Files uploaded successfully',
       data: newUpload.rows[0]
     });
+
   } catch (err) {
-    console.error('Upload error:', err);
-    res.status(500).json({ message: 'Server error during upload', error: err.message });
+    console.error('=== UPLOAD ERROR ===');
+    console.error('Error message:', err.message);
+    console.error('Error stack:', err.stack);
+    
+    // Clean up Cloudinary files if database fails
+    if (req.files) {
+      for (const file of req.files) {
+        if (file.filename || file.public_id) {
+          try {
+            await cloudinary.uploader.destroy(
+              file.filename || file.public_id,
+              { resource_type: file.mimetype?.includes('pdf') ? 'raw' : 'image' }
+            );
+            console.log('Cleaned up Cloudinary file:', file.filename);
+          } catch (cleanupErr) {
+            console.warn('Failed to cleanup:', cleanupErr.message);
+          }
+        }
+      }
+    }
+
+    res.status(500).json({ 
+      message: 'Server error during upload', 
+      error: err.message,
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 });
 
