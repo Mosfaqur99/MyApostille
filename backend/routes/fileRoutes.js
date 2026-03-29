@@ -103,7 +103,6 @@ const uploadVerified = multer({
 router.post('/upload', verifyToken, uploadOriginal.array('files'), async (req, res) => {
   console.log('=== UPLOAD REQUEST ===');
   console.log('Files received:', req.files?.length || 0);
-  console.log('User:', req.user?.id);
 
   try {
     if (!req.files || req.files.length === 0) {
@@ -121,19 +120,23 @@ router.post('/upload', verifyToken, uploadOriginal.array('files'), async (req, r
       return res.status(400).json({ message: 'Only one PDF file allowed per upload' });
     }
 
-    // Build file data array safely
+    // Build file data array
     const fileData = req.files.map(file => ({
-      path: file.path || file.secure_url,  // Handle both multer-cloudinary formats
+      path: file.path,
       original_name: file.originalname,
-      public_id: file.filename || file.public_id
+      public_id: file.filename
     }));
 
-    console.log('File data prepared:', fileData.length, 'files');
-
     const file_type = hasPDF ? 'pdf' : (req.files.length > 1 ? 'multi-image' : 'image');
-    const original_filename = fileData.map(f => f.original_name).join(', ');
+    
+    // FIX: Truncate filename to fit in VARCHAR(255)
+    let original_filename = fileData.map(f => f.original_name).join(', ');
+    if (original_filename.length > 250) {
+      original_filename = original_filename.substring(0, 247) + '...';
+    }
 
     console.log('Inserting to database...');
+    console.log('Filename length:', original_filename.length);
 
     const newUpload = await pool.query(
       `INSERT INTO uploads 
@@ -144,7 +147,7 @@ router.post('/upload', verifyToken, uploadOriginal.array('files'), async (req, r
         req.user.id,
         original_filename,
         fileData[0].path,
-        JSON.stringify(fileData),  // Ensure proper JSON stringification
+        JSON.stringify(fileData),
         file_type,
         'pending'
       ]
@@ -160,20 +163,22 @@ router.post('/upload', verifyToken, uploadOriginal.array('files'), async (req, r
   } catch (err) {
     console.error('=== UPLOAD ERROR ===');
     console.error('Error message:', err.message);
-    console.error('Error stack:', err.stack);
+    
+    // Import cloudinary at top of file if not already
+    const { cloudinary } = require('../config/cloudinary');
     
     // Clean up Cloudinary files if database fails
     if (req.files) {
       for (const file of req.files) {
-        if (file.filename || file.public_id) {
+        if (file.filename) {
           try {
             await cloudinary.uploader.destroy(
-              file.filename || file.public_id,
+              file.filename,
               { resource_type: file.mimetype?.includes('pdf') ? 'raw' : 'image' }
             );
-            console.log('Cleaned up Cloudinary file:', file.filename);
+            console.log('Cleaned up:', file.filename);
           } catch (cleanupErr) {
-            console.warn('Failed to cleanup:', cleanupErr.message);
+            console.warn('Cleanup failed:', cleanupErr.message);
           }
         }
       }
@@ -181,8 +186,7 @@ router.post('/upload', verifyToken, uploadOriginal.array('files'), async (req, r
 
     res.status(500).json({ 
       message: 'Server error during upload', 
-      error: err.message,
-      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      error: err.message
     });
   }
 });
@@ -227,7 +231,7 @@ router.post('/upload/:uploadId/add-files', verifyToken, uploadOriginal.array('fi
 
     // Add new files
     const newFileData = req.files.map(file => ({
-      path: file.path,  // Cloudinary URL
+      path: file.path,
       original_name: file.originalname,
       public_id: file.filename
     }));
@@ -238,6 +242,12 @@ router.post('/upload/:uploadId/add-files', verifyToken, uploadOriginal.array('fi
     let fileType = upload.file_type;
     if (updatedFiles.length > 1) {
       fileType = 'multi-image';
+    }
+
+    // FIX: Truncate filename to fit in VARCHAR(255)
+    let original_filename = updatedFiles.map(f => f.original_name).join(', ');
+    if (original_filename.length > 250) {
+      original_filename = original_filename.substring(0, 247) + '...';
     }
 
     // Update database
@@ -254,7 +264,7 @@ router.post('/upload/:uploadId/add-files', verifyToken, uploadOriginal.array('fi
         JSON.stringify(updatedFiles),
         fileType,
         updatedFiles[0].path,
-        updatedFiles.map(f => f.original_name).join(', '),
+        original_filename,
         uploadId,
         req.user.id
       ]
@@ -269,6 +279,27 @@ router.post('/upload/:uploadId/add-files', verifyToken, uploadOriginal.array('fi
 
   } catch (err) {
     console.error('Add files error:', err);
+    
+    // Import cloudinary for cleanup
+    const { cloudinary } = require('../config/cloudinary');
+    
+    // Cleanup uploaded files if database fails
+    if (req.files) {
+      for (const file of req.files) {
+        if (file.filename) {
+          try {
+            await cloudinary.uploader.destroy(
+              file.filename,
+              { resource_type: file.mimetype?.includes('pdf') ? 'raw' : 'image' }
+            );
+            console.log('Cleaned up:', file.filename);
+          } catch (cleanupErr) {
+            console.warn('Cleanup failed:', cleanupErr.message);
+          }
+        }
+      }
+    }
+    
     res.status(500).json({ 
       message: 'Server error during file addition', 
       error: err.message 
