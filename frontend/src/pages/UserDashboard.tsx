@@ -242,45 +242,79 @@ const UserDashboard = () => {
   };
 
   // Handle NEW upload
-  const handleUpload = async () => {
-    if (selectedFiles.length === 0) {
-      toast.error('Please select at least one image');
-      return;
-    }
+  // Replace your handleUpload function with this:
 
-    const formData = new FormData();
-    selectedFiles.forEach(file => {
-      formData.append('files', file);
-    });
+const handleUpload = async () => {
+  if (selectedFiles.length === 0) {
+    toast.error('Please select at least one image');
+    return;
+  }
 
-    setIsUploading(true);
-    try {
-      await api.post('/files/upload', formData, {
+  const BATCH_SIZE = 10;
+  const batches = [];
+  
+  for (let i = 0; i < selectedFiles.length; i += BATCH_SIZE) {
+    batches.push(selectedFiles.slice(i, i + BATCH_SIZE));
+  }
+
+  setIsUploading(true);
+  let uploadId: string | null = null;
+  let totalUploaded = 0;
+
+  try {
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      const formData = new FormData();
+      
+      batch.forEach(file => {
+        formData.append('files', file);
+      });
+
+      // First batch creates new upload, subsequent batches add to it
+      const endpoint = i === 0 
+        ? '/files/upload' 
+        : `/files/upload/${uploadId}/add-files`;
+
+      // Add delay between batches
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+
+      const response: any = await api.post(endpoint, formData, {
+        timeout: 60000,
         onUploadProgress: (progressEvent: any) => {
           if (progressEvent.total) {
-            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-            console.log(`Upload progress: ${percentCompleted}%`);
+            const batchPercent = (progressEvent.loaded * 100) / progressEvent.total;
+            const overallProgress = Math.round(((i + batchPercent / 100) / batches.length) * 100);
+            console.log(`Batch ${i + 1}/${batches.length}: ${Math.round(batchPercent)}% (Overall: ${overallProgress}%)`);
           }
         }
       });
-      
-      toast.success(`${selectedFiles.length} image${selectedFiles.length > 1 ? 's' : ''} uploaded successfully!`);
-      
-      // Clear selection and close modal
-      previewUrls.forEach(url => URL.revokeObjectURL(url));
-      setSelectedFiles([]);
-      setPreviewUrls([]);
-      setIsUploadModalOpen(false);
-      
-      // Refresh uploads list
-      fetchUploads();
-    } catch (error: any) {
-      console.error('Upload failed', error);
-      toast.error(error.response?.data?.message || 'Upload failed');
-    } finally {
-      setIsUploading(false);
+
+      // Save uploadId from first batch
+      if (i === 0 && response.data?.data?.id) {
+        uploadId = response.data.data.id;
+      }
+
+      totalUploaded += batch.length;
+      toast.success(`Batch ${i + 1}/${batches.length} complete`);
     }
-  };
+
+    toast.success(`All ${totalUploaded} files uploaded successfully!`);
+    
+    previewUrls.forEach(url => URL.revokeObjectURL(url));
+    setSelectedFiles([]);
+    setPreviewUrls([]);
+    setIsUploadModalOpen(false);
+    fetchUploads();
+    
+  } catch (error: any) {
+    console.error('Upload failed', error);
+    toast.error(error.response?.data?.message || 'Upload failed');
+  } finally {
+    setIsUploading(false);
+  }
+};
 
   // Handle drag events for NEW upload modal
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -712,31 +746,31 @@ const UserDashboard = () => {
                   বাতিল করুন
                 </button>
                 <button
-                  onClick={handleUpload}
-                  disabled={isUploading || selectedFiles.length === 0}
-                  className={`px-5 py-2.5 rounded-lg font-medium text-white flex items-center gap-2 ${
-                    isUploading 
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-green-600 hover:bg-green-700'
-                  } shadow-md hover:shadow-lg transition-colors`}
-                >
-                  {isUploading ? (
-                    <>
-                      <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      আপলোড হচ্ছে...
-                    </>
-                  ) : (
-                    <>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      {selectedFiles.length}টি ইমেজ জমা দিন
-                    </>
-                  )}
-                </button>
+  onClick={handleUpload}
+  disabled={isUploading || selectedFiles.length === 0}
+  className={`px-5 py-2.5 rounded-lg font-medium text-white flex items-center gap-2 ${
+    isUploading 
+      ? 'bg-gray-400 cursor-not-allowed' 
+      : 'bg-green-600 hover:bg-green-700'
+  } shadow-md hover:shadow-lg transition-colors`}
+>
+  {isUploading ? (
+    <>
+      <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      আপলোড হচ্ছে {selectedFiles.length > 10 ? '(ব্যাচে)' : ''}...
+    </>
+  ) : (
+    <>
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+      </svg>
+      {selectedFiles.length}টি ইমেজ জমা দিন
+    </>
+  )}
+</button>
               </div>
             </div>
           </div>

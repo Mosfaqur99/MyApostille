@@ -1073,4 +1073,81 @@ router.patch('/edit/:id', verifyToken, uploadOriginal.array('files'), async (req
   }
 });
 
+
+// In fileroute.js - ADD THIS NEW ENDPOINT
+
+// Upload additional files to existing upload
+router.post('/upload/:uploadId/add-files', verifyToken, uploadOriginal.array('files'), async (req, res) => {
+  try {
+    const { uploadId } = req.params;
+    
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ message: 'No files uploaded' });
+    }
+
+    // Get existing upload
+    const existingUpload = await pool.query(
+      'SELECT * FROM uploads WHERE id = $1 AND user_id = $2',
+      [uploadId, req.user.id]
+    );
+
+    if (existingUpload.rows.length === 0) {
+      return res.status(404).json({ message: 'Upload not found' });
+    }
+
+    const upload = existingUpload.rows[0];
+    
+    // Parse existing files
+    let existingFiles = [];
+    if (upload.file_paths) {
+      existingFiles = typeof upload.file_paths === 'string' 
+        ? JSON.parse(upload.file_paths) 
+        : upload.file_paths;
+    }
+
+    // Add new files
+    const newFileData = req.files.map(file => ({
+      path: file.path,
+      original_name: file.originalname,
+      public_id: file.filename
+    }));
+
+    const updatedFiles = [...existingFiles, ...newFileData];
+    
+    // Update file type
+    let fileType = upload.file_type;
+    if (updatedFiles.length > 1) {
+      fileType = 'multi-image';
+    }
+
+    // Update database
+    const result = await pool.query(
+      `UPDATE uploads 
+       SET file_paths = $1, 
+           file_type = $2,
+           file_path = $3,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $4 AND user_id = $5
+       RETURNING *`,
+      [
+        JSON.stringify(updatedFiles),
+        fileType,
+        updatedFiles[0].path,
+        uploadId,
+        req.user.id
+      ]
+    );
+
+    res.status(200).json({
+      message: 'Files added successfully',
+      data: result.rows[0],
+      addedCount: newFileData.length
+    });
+
+  } catch (err) {
+    console.error('Add files error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
 module.exports = router;

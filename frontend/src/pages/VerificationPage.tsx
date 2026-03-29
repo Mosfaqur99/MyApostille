@@ -7,6 +7,7 @@ import { toast } from "react-toastify";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faDownload } from "@fortawesome/free-solid-svg-icons";
 
+
 const API_URL =
   process.env.REACT_APP_API_URL ||
   "https://bangladesh-apostille-api.onrender.com/api";
@@ -229,16 +230,33 @@ const VerificationPage = () => {
                 </div>
                 <div className="p-4">
                   {/* PDF viewer - full width on mobile, constrained on desktop */}
-                  <div className="flex justify-center">
-                    <div className="bg-white mx-4 shadow-md rounded-md">
-                      <iframe
-                        src={`${verificationData?.certificatePath}#toolbar=0&navpanes=0`}
-                        className="w-[405px] h-[571px] sm:w-[350px] md:w-[405px] "
-                        style={{ border: "none" }}
-                        title="Certificate Viewer"
-                      />
-                    </div>
-                  </div>
+                  {/* Certificate PDF - No scrollbars */}
+<div className="flex justify-center">
+  <div 
+    className="bg-white mx-4 shadow-md rounded-md relative"
+    style={{ 
+      width: '405px', 
+      height: '571px',
+      overflow: 'hidden' // Hides any overflowing scrollbars
+    }}
+  >
+    <embed
+      src={`${verificationData.certificatePath}#toolbar=0&navpanes=0&zoom=page-fit&scrollbar=0`}
+      type="application/pdf"
+      width="100%"
+      height="100%"
+      style={{ 
+        border: 'none',
+        display: 'block'
+      }}
+    />
+    {/* Overlay blocks scroll wheel and prevents scrollbar interaction */}
+    <div 
+      className="absolute inset-0 bg-transparent"
+      style={{ pointerEvents: 'none' }}
+    />
+  </div>
+</div>
                   {/* <div className="w-full max-w-2xl bg-white overflow-hidden">
                     <embed
                       src={`${verificationData.certificatePath}#toolbar=0&navpanes=0&zoom=page-fit`}
