@@ -388,7 +388,12 @@ async function generateEApostilleCertificate(certificateData) {
     const bottomSectionY = margin + 80;
 
    // QR Code at bottom right
-const qrBuffer = await generateQRCode(`https://mygovapostille.com/verify/${certNo}`);
+   // Use dynamic baseUrl from certificateData (passed from fileroute.js)
+const baseUrl = certificateData.baseUrl || 'https://mygovapostille.com';
+
+// Remove trailing slash if present
+const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+const qrBuffer = await generateQRCode(`${cleanBaseUrl}/verify/${certNo}`);
 if (qrBuffer) {
   const qrImage = await doc.embedPng(qrBuffer);
   page.drawImage(qrImage, { 

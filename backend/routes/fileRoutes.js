@@ -71,7 +71,7 @@ const certificateStorage = createStorage('certificates');
 // Create multer instances
 const uploadOriginal = multer({ 
   storage: originalStorage,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: function (req, file, cb) {
     const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
     if (allowed.includes(file.mimetype)) {
@@ -84,7 +84,7 @@ const uploadOriginal = multer({
 
 const uploadVerified = multer({ 
   storage: verifiedStorage,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: function (req, file, cb) {
     const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
     if (allowed.includes(file.mimetype)) {
