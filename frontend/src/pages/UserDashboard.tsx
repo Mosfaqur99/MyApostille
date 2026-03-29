@@ -250,9 +250,10 @@ const handleUpload = async () => {
     return;
   }
 
-  const BATCH_SIZE = 10;
+  const BATCH_SIZE = 10; // Cloudinary limit per batch
   const batches = [];
   
+  // Split into batches
   for (let i = 0; i < selectedFiles.length; i += BATCH_SIZE) {
     batches.push(selectedFiles.slice(i, i + BATCH_SIZE));
   }
@@ -260,6 +261,7 @@ const handleUpload = async () => {
   setIsUploading(true);
   let uploadId: string | null = null;
   let totalUploaded = 0;
+  const failedBatches: number[] = [];
 
   try {
     for (let i = 0; i < batches.length; i++) {
@@ -270,47 +272,76 @@ const handleUpload = async () => {
         formData.append('files', file);
       });
 
-      // First batch creates new upload, subsequent batches add to it
-      const endpoint = i === 0 
+      // First batch: create new upload
+      // Subsequent batches: add to existing upload
+      const endpoint: string = i === 0 
         ? '/files/upload' 
         : `/files/upload/${uploadId}/add-files`;
 
-      // Add delay between batches
+      // Delay between batches to prevent rate limiting
       if (i > 0) {
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
-      const response: any = await api.post(endpoint, formData, {
-        timeout: 60000,
-        onUploadProgress: (progressEvent: any) => {
-          if (progressEvent.total) {
-            const batchPercent = (progressEvent.loaded * 100) / progressEvent.total;
-            const overallProgress = Math.round(((i + batchPercent / 100) / batches.length) * 100);
-            console.log(`Batch ${i + 1}/${batches.length}: ${Math.round(batchPercent)}% (Overall: ${overallProgress}%)`);
+      try {
+        const response = await api.post(endpoint, formData, {
+          timeout: 60000, // 60 second timeout
+          onUploadProgress: (progressEvent: any) => {
+            if (progressEvent.total) {
+              const batchPercent = (progressEvent.loaded * 100) / progressEvent.total;
+              const overallProgress = Math.round(
+                ((i * 100 + batchPercent) / (batches.length * 100)) * 100
+              );
+              console.log(`Batch ${i + 1}/${batches.length}: ${Math.round(batchPercent)}% (Overall: ${overallProgress}%)`);
+            }
           }
+        });
+
+        // Save uploadId from first batch response
+        if (i === 0 && response.data?.data?.id) {
+          uploadId = response.data.data.id;
+          console.log('Created upload ID:', uploadId);
         }
-      });
 
-      // Save uploadId from first batch
-      if (i === 0 && response.data?.data?.id) {
-        uploadId = response.data.data.id;
+        totalUploaded += batch.length;
+        
+        if (batches.length > 1) {
+          toast.success(`✅ Batch ${i + 1}/${batches.length}: ${batch.length} files added`);
+        }
+
+      } catch (batchError: any) {
+        console.error(`Batch ${i + 1} failed:`, batchError);
+        failedBatches.push(i + 1);
+        toast.error(`❌ Batch ${i + 1} failed: ${batchError.response?.data?.message || 'Server error'}`);
+        
+        // Stop on first failure to prevent partial uploads
+        throw batchError;
       }
-
-      totalUploaded += batch.length;
-      toast.success(`Batch ${i + 1}/${batches.length} complete`);
     }
 
-    toast.success(`All ${totalUploaded} files uploaded successfully!`);
+    // Success - all batches complete
+    toast.success(`🎉 ${totalUploaded} files uploaded successfully!`);
     
+    // Cleanup
     previewUrls.forEach(url => URL.revokeObjectURL(url));
     setSelectedFiles([]);
     setPreviewUrls([]);
     setIsUploadModalOpen(false);
-    fetchUploads();
+    
+    // Refresh list
+    await fetchUploads();
     
   } catch (error: any) {
-    console.error('Upload failed', error);
-    toast.error(error.response?.data?.message || 'Upload failed');
+    console.error('Upload process failed:', error);
+    
+    // If some batches succeeded, show warning instead of error
+    if (totalUploaded > 0) {
+      toast.warning(`⚠️ ${totalUploaded} files uploaded, but process incomplete. Please check your uploads.`);
+      await fetchUploads();
+    } else {
+      toast.error(`Upload failed: ${error.response?.data?.message || error.message}`);
+    }
+    
   } finally {
     setIsUploading(false);
   }
@@ -760,7 +791,7 @@ const handleUpload = async () => {
         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
       </svg>
-      আপলোড হচ্ছে {selectedFiles.length > 10 ? '(ব্যাচে)' : ''}...
+      আপলোড হচ্ছে{selectedFiles.length > 10 ? ` (${Math.ceil(selectedFiles.length / 10)} ব্যাচ)` : ''}...
     </>
   ) : (
     <>
