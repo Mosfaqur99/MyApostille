@@ -867,7 +867,8 @@ router.get('/files/verify/:identifier', async (req, res) => {
                 certificateImageUrl = null;
             }
         }
-
+        console.log('=== CLOUDINARY TRANSFORMATION DEBUG ===');
+console.log('Original PDF URL:', upload.certificate_pdf_path);
         res.json({
             certificateNumber: upload.certificate_number,
             certificatePath: upload.certificate_pdf_path,
