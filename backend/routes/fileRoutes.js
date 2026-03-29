@@ -63,40 +63,7 @@ async function ensureDirAsync(dirPath) {
 }
 
 
-async function convertCertificatePdfToImage(pdfBuffer, options = {}) {
-  const {
-    format = 'png',
-    width = 800,
-    quality = 90,
-    density = 150
-  } = options;
 
-  try {
-    const convert = fromBuffer(pdfBuffer, {
-      density: density,
-      format: format,
-      width: width,
-      quality: quality,
-      preserveAspectRatio: true
-    });
-
-    // Convert only first page (1)
-    const images = await convert.bulk(1, { responseType: 'buffer' });
-    
-    if (!images || images.length === 0) {
-      throw new Error('No images generated from PDF');
-    }
-    
-    return {
-      buffer: images[0].buffer,
-      format: format,
-      base64: `data:image/${format};base64,${images[0].buffer.toString('base64')}`
-    };
-  } catch (error) {
-    console.error('Certificate PDF conversion error:', error);
-    throw new Error(`Failed to convert certificate PDF to image: ${error.message}`);
-  }
-}
 // ========== MULTER CONFIGURATION ==========
 
 // Create storage instances for different purposes
