@@ -7,7 +7,7 @@ const { verifyToken, authorizeRole } = require('../middleware/auth');
 const pool = require('../config/db');
 const AdmZip = require('adm-zip');
 const { createStorage } = require('../config/cloudinary');
-const { fromBuffer } = require('pdf2pic');
+
 
 // Import generators and processors
 const { generateEApostilleCertificate } = require('../utils/certificateGenerator');
@@ -856,58 +856,27 @@ router.get('/files/verify/:certificateNumber', async (req, res) => {
             }];
         }
 
-        // ✅ CONVERT CERTIFICATE PDF TO IMAGE
+        // ✅ CLOUDINARY MAGIC: Convert PDF to image on-the-fly via URL transformation
         let certificateImageUrl = null;
         
         if (upload.certificate_pdf_path) {
             try {
-                const axios = require('axios');
-                
-                // Download certificate PDF from Cloudinary
-                const response = await axios.get(upload.certificate_pdf_path, {
-                    responseType: 'arraybuffer',
-                    timeout: 30000
-                });
-                
-                const pdfBuffer = Buffer.from(response.data);
-                
-                // Convert to image
-                const imageResult = await convertCertificatePdfToImage(pdfBuffer, {
-                    format: 'png',
-                    width: 800,      // Good quality for display
-                    density: 150,    // Decent resolution
-                    quality: 95
-                });
-                
-                // Upload image to Cloudinary (temporary or permanent)
-                const { cloudinary } = require('../config/cloudinary');
-                const streamifier = require('streamifier');
-                
-                const uploadResult = await new Promise((resolve, reject) => {
-                    const uploadStream = cloudinary.uploader.upload_stream(
-                        {
-                            folder: 'apostille/certificate-images',
-                            public_id: `cert-${certificateNumber}`,
-                            resource_type: 'image',
-                            format: 'png',
-                            // Optional: Set expiration if you want auto-cleanup
-                            // type: 'upload'
-                        },
-                        (error, result) => {
-                            if (error) reject(error);
-                            else resolve(result);
-                        }
-                    );
+                // Check if it's a Cloudinary URL
+                if (upload.certificate_pdf_path.includes('cloudinary.com')) {
+                    // Transform Cloudinary URL to get PNG image of first page
+                    // w_800 = width 800px, pg_1 = page 1, f_png = format PNG
+                    certificateImageUrl = upload.certificate_pdf_path
+                        .replace('/upload/', '/upload/w_800,pg_1,f_png/')
+                        .replace('.pdf', '.png');
                     
-                    streamifier.createReadStream(imageResult.buffer).pipe(uploadStream);
-                });
-                
-                certificateImageUrl = uploadResult.secure_url;
-                console.log(`Certificate image generated: ${certificateImageUrl}`);
-                
-            } catch (convError) {
-                console.error('Failed to convert certificate to image:', convError);
-                // Don't fail the request, just don't include the image
+                    console.log(`Certificate image URL generated: ${certificateImageUrl}`);
+                } else {
+                    // Non-Cloudinary URL - skip conversion
+                    console.log('Non-Cloudinary certificate URL, skipping image conversion');
+                    certificateImageUrl = null;
+                }
+            } catch (urlError) {
+                console.error('Error generating certificate image URL:', urlError);
                 certificateImageUrl = null;
             }
         }
@@ -915,7 +884,7 @@ router.get('/files/verify/:certificateNumber', async (req, res) => {
         res.json({
             certificateNumber: upload.certificate_number,
             certificatePath: upload.certificate_pdf_path,      // Original PDF
-            certificateImageUrl: certificateImageUrl,        // ✅ New image URL
+            certificateImageUrl: certificateImageUrl,          // ✅ Cloudinary transformed image
             userName: upload.user_name,
             userEmail: upload.user_email,
             verifiedByName: upload.verified_by_name,
