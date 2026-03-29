@@ -717,23 +717,43 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 
 // GET /verify/:certificateNumber - PUBLIC ROUTE
 // GET /files/verify/:certificateNumber - PUBLIC ROUTE
-router.get('/files/verify/:certificateNumber', async (req, res) => {
+router.get('/files/verify/:identifier', async (req, res) => {
     try {
-        const { certificateNumber } = req.params;
+        const { identifier } = req.params;
         
-        // Get upload with user info
-        const uploadQuery = `
-            SELECT u.*, 
-                   usr.name as user_name, 
-                   usr.email as user_email,
-                   verifier.name as verified_by_name
-            FROM uploads u
-            JOIN users usr ON u.user_id = usr.id
-            LEFT JOIN users verifier ON u.verified_by = verifier.id
-            WHERE u.certificate_number = $1
-        `;
+        let uploadQuery;
+        let queryParams;
         
-        const uploadResult = await pool.query(uploadQuery, [certificateNumber]);
+        // Check if it's a 12-digit certificate number
+        if (/^\d{12}$/.test(identifier)) {
+            // Search by certificate number
+            uploadQuery = `
+                SELECT u.*, 
+                       usr.name as user_name, 
+                       usr.email as user_email,
+                       verifier.name as verified_by_name
+                FROM uploads u
+                JOIN users usr ON u.user_id = usr.id
+                LEFT JOIN users verifier ON u.verified_by = verifier.id
+                WHERE u.certificate_number = $1
+            `;
+            queryParams = [identifier];
+        } else {
+            // Search by upload ID (for backwards compatibility)
+            uploadQuery = `
+                SELECT u.*, 
+                       usr.name as user_name, 
+                       usr.email as user_email,
+                       verifier.name as verified_by_name
+                FROM uploads u
+                JOIN users usr ON u.user_id = usr.id
+                LEFT JOIN users verifier ON u.verified_by = verifier.id
+                WHERE u.id = $1
+            `;
+            queryParams = [parseInt(identifier)];
+        }
+        
+        const uploadResult = await pool.query(uploadQuery, queryParams);
         
         if (uploadResult.rows.length === 0) {
             return res.status(404).json({ message: 'Certificate not found' });
@@ -850,8 +870,8 @@ router.get('/files/verify/:certificateNumber', async (req, res) => {
 
         res.json({
             certificateNumber: upload.certificate_number,
-            certificatePath: upload.certificate_pdf_path,      // Original PDF
-            certificateImageUrl: certificateImageUrl,          // ✅ Cloudinary transformed image
+            certificatePath: upload.certificate_pdf_path,
+            certificateImageUrl: certificateImageUrl,
             userName: upload.user_name,
             userEmail: upload.user_email,
             verifiedByName: upload.verified_by_name,
