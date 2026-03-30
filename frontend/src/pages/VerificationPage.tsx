@@ -229,24 +229,24 @@ const VerificationPage = () => {
       </h2>
     </div>
     <div className="p-4">
-      {/* Certificate Image - displays like a document, no iframe */}
+      {/* Certificate Image - No iframe, just img tag */}
       <div className="flex justify-center">
-        <div className="bg-white mx-4 shadow-md rounded-md overflow-hidden">
+        <div className="bg-white mx-4 shadow-md rounded-md overflow-hidden border border-gray-200">
           {verificationData?.certificateImageUrl ? (
             <img
               src={verificationData.certificateImageUrl}
               alt="E-Apostille Certificate"
-              className="w-full max-w-[405px] h-auto object-contain"
-              loading="lazy"
+              className="w-full max-w-[405px] h-auto object-contain block"
+              loading="eager"
               onError={(e) => {
                 console.error('Certificate image failed to load');
-                // Fallback to showing a placeholder with download button
-                (e.target as HTMLImageElement).style.display = 'none';
-                // You could show a placeholder div here
+                // Hide the broken image and show fallback
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
               }}
             />
           ) : (
-            // Fallback for PDF-only URLs
+            // Fallback when no image URL available
             <div className="w-[405px] h-[571px] bg-gray-100 flex items-center justify-center flex-col p-6 text-center">
               <p className="text-gray-600 mb-4">প্রমাণপত্র দেখতে ডাউনলোড করুন</p>
               <button
@@ -262,10 +262,10 @@ const VerificationPage = () => {
       </div>
 
       {/* Download button */}
-      <div className="max-w-2xl flex justify-end">
+      <div className="max-w-2xl flex justify-end mt-4">
         <button
           onClick={handleDownloadCertificate}
-          className="w-72 mt-4 bg-slate-900 text-white py-2 font-bold text-sm rounded-lg hover:bg-green-700 transition-all duration-300 shadow flex items-center justify-center gap-2"
+          className="w-72 bg-slate-900 text-white py-2 font-bold text-sm rounded-lg hover:bg-green-700 transition-all duration-300 shadow flex items-center justify-center gap-2"
         >
           <FontAwesomeIcon icon={faDownload} />
           অ্যাপোস্টিল ডাউনলোড করুন
