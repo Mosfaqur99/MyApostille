@@ -275,31 +275,34 @@ const VerificationPage = () => {
                     key={docIndex}
                     className="bg-white shadow-sm overflow-hidden"
                   >
-                    {/* Document Image */}
-                    <div className="p-0 bg-gray-50">
-                      <div className="bg-white overflow-hidden">
-                        {doc.url?.toLowerCase().endsWith(".pdf") ? (
-                          <embed
-                            src={`https://docs.google.com/viewer?url=${encodeURIComponent(
-                              doc.url
-                            )}&embedded=true`}
-                            className="w-full h-[500px] sm:h-[600px] border-none"
-                            title={`Document ${docIndex + 1}`}
-                          />
-                        ) : (
-                          <img
-                            src={doc.url}
-                            alt={`Document ${docIndex + 1}`}
-                            className="w-full h-auto object-contain"
-                            onError={(e) => {
-                              console.error("Image failed to load:", doc.url);
-                              (e.target as HTMLImageElement).style.display =
-                                "none";
-                            }}
-                          />
-                        )}
-                      </div>
-                    </div>
+                    {/* Document Image - No more iframes/embeds */}
+<div className="p-0 bg-gray-50">
+  <div className="bg-white overflow-hidden shadow-inner">
+    {/* We optimize the Cloudinary URL on the fly by inserting 'q_auto,f_auto' 
+      This ensures the images load fast on mobile devices.
+    */}
+    <img
+      src={
+        doc.url?.includes("cloudinary.com") 
+          ? doc.url.replace("/upload/", "/upload/q_auto,f_auto,w_1000/") 
+          : doc.url
+      }
+      alt={`Document ${docIndex + 1}`}
+      className="w-full h-auto object-contain block"
+      loading="lazy" // Improves page performance
+      onError={(e) => {
+        console.error("Document image failed to load:", doc.url);
+        // Fallback: if optimization fails, try the original URL
+        const target = e.target as HTMLImageElement;
+        if (target.src !== doc.url) {
+          target.src = doc.url;
+        } else {
+          target.style.display = "none";
+        }
+      }}
+    />
+  </div>
+</div>
 
                     {/* Signature Blocks */}
                     {doc.signers && doc.signers.length > 0 && (
