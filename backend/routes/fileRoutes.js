@@ -705,6 +705,7 @@ if (upload.certificate_pdf_path && upload.certificate_pdf_path.includes('cloudin
         res.json({
             certificateNumber: upload.certificate_number,
             certificatePath: upload.certificate_pdf_path,
+            certificateImageUrl: certificateImageUrl,
             userName: upload.user_name,
             userEmail: upload.user_email,
             verifiedByName: upload.verified_by_name,
