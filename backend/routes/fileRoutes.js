@@ -880,7 +880,7 @@ const certUploadResult = await new Promise((resolve, reject) => {
     {
       folder: 'apostille/certificates',
       public_id: `certificate-${certNumber}`,
-      resource_type: 'raw',  // ✅ CORRECT - allows PDF transformations
+      resource_type: 'image',  // ✅ CORRECT - allows PDF transformations
       format: 'pdf'
     },
     (error, result) => {
