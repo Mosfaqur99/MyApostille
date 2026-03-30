@@ -844,31 +844,44 @@ router.get('/files/verify/:identifier', async (req, res) => {
         }
 
         // ✅ CLOUDINARY MAGIC: Convert PDF to image on-the-fly via URL transformation
-        let certificateImageUrl = null;
-        
-        if (upload.certificate_pdf_path) {
-            try {
-                // Check if it's a Cloudinary URL
-                if (upload.certificate_pdf_path.includes('cloudinary.com')) {
-                    // Transform Cloudinary URL to get PNG image of first page
-                    // w_800 = width 800px, pg_1 = page 1, f_png = format PNG
-                    certificateImageUrl = upload.certificate_pdf_path
-                        .replace('/upload/', '/upload/w_800,pg_1,f_png/')
-                        .replace('.pdf', '.png');
-                    
-                    console.log(`Certificate image URL generated: ${certificateImageUrl}`);
-                } else {
-                    // Non-Cloudinary URL - skip conversion
-                    console.log('Non-Cloudinary certificate URL, skipping image conversion');
-                    certificateImageUrl = null;
-                }
-            } catch (urlError) {
-                console.error('Error generating certificate image URL:', urlError);
-                certificateImageUrl = null;
+      // ✅ CLOUDINARY MAGIC: Convert PDF to image on-the-fly via URL transformation
+let certificateImageUrl = null;
+
+if (upload.certificate_pdf_path) {
+    try {
+        // Check if it's a Cloudinary URL
+        if (upload.certificate_pdf_path.includes('cloudinary.com')) {
+            // Parse the Cloudinary URL properly
+            // URL format: https://res.cloudinary.com/<cloud_name>/<asset_type>/<delivery_type>/.../<public_id>.pdf
+            
+            const urlParts = upload.certificate_pdf_path.split('/upload/');
+            
+            if (urlParts.length === 2) {
+                // Insert transformation parameters between /upload/ and the rest
+                // w_800 = width 800px, pg_1 = page 1, f_png = format PNG, q_auto = quality auto
+                certificateImageUrl = `${urlParts[0]}/upload/w_800,pg_1,f_png,q_auto/${urlParts[1].replace('.pdf', '.png')}`;
+                
+                console.log(`✅ Certificate image URL generated: ${certificateImageUrl}`);
+            } else {
+                // Fallback: try simple replacement
+                certificateImageUrl = upload.certificate_pdf_path
+                    .replace('/upload/', '/upload/w_800,pg_1,f_png,q_auto/')
+                    .replace('.pdf', '.png');
             }
+        } else {
+            // Non-Cloudinary URL - can't transform
+            console.log('⚠️ Non-Cloudinary certificate URL, skipping image conversion');
+            certificateImageUrl = null;
         }
-        console.log('=== CLOUDINARY TRANSFORMATION DEBUG ===');
+    } catch (urlError) {
+        console.error('❌ Error generating certificate image URL:', urlError);
+        certificateImageUrl = null;
+    }
+}
+
+console.log('=== CLOUDINARY TRANSFORMATION DEBUG ===');
 console.log('Original PDF URL:', upload.certificate_pdf_path);
+console.log('Generated Image URL:', certificateImageUrl);
         res.json({
             certificateNumber: upload.certificate_number,
             certificatePath: upload.certificate_pdf_path,

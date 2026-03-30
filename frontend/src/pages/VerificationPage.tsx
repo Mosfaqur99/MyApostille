@@ -31,7 +31,7 @@ interface DocumentData {
 interface VerificationData {
   certificateNumber: string;
   certificatePath: string;
-  certificateImageUrl?: string;
+   certificateImageUrl?: string;
   documents: DocumentData[];
   userName: string;
   userEmail: string;
@@ -43,12 +43,9 @@ interface VerificationData {
 const VerificationPage = () => {
   const { certificateNumber } = useParams();
   const navigate = useNavigate();
-  
-  // ✅ Removed: numPages and pdfLoading states (no longer needed)
-  const [certImageLoading, setCertImageLoading] = useState(true); // ✅ Added: track certificate image loading
-  const [certImageError, setCertImageError] = useState(false);   // ✅ Added: track certificate image error
-  
-  const [verificationData, setVerificationData] = useState<VerificationData | null>(null);
+
+  const [verificationData, setVerificationData] =
+    useState<VerificationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +55,7 @@ const VerificationPage = () => {
   const getSignatureImageUrl = (signatureImage: string) => {
     if (!signatureImage) return "";
     if (signatureImage.startsWith("http")) return signatureImage;
+    // Use normalizedApiUrl without /api for static assets
     const baseUrl = normalizedApiUrl.slice(0, -4);
     return `${baseUrl}/api/signatures/${signatureImage}`;
   };
@@ -88,8 +86,6 @@ const VerificationPage = () => {
     try {
       setLoading(true);
       setError(null);
-      setCertImageLoading(true);  // ✅ Reset image loading state
-      setCertImageError(false);   // ✅ Reset image error state
 
       const response = await axios.get(
         `${normalizedApiUrl}/files/verify/${certificateNumber}`,
@@ -220,76 +216,64 @@ const VerificationPage = () => {
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
       <Header />
+      {/* FULL WIDTH - no padding, no max-width constraints */}
       <main className="flex-grow w-full">
         <div className="container mx-auto">
           <div className="w-full space-y-6">
             {/* E-Apostille Certificate Section */}
             {hasCertificate && (
-              <div className="bg-white shadow-sm overflow-hidden">
-                <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-                  <h2 className="text-xl font-bold text-gray-800">
-                    অ্যাপোস্টিল
-                  </h2>
-                </div>
-                <div className="p-4">
-                  {/* ✅ Show certificate as image with loading state */}
-                  {verificationData?.certificateImageUrl && !certImageError ? (
-                    <div className="flex justify-center">
-                      <div className="bg-white mx-4 shadow-md rounded-md overflow-hidden max-w-full relative">
-                        {/* Loading spinner */}
-                        {certImageLoading && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-                            <div className="animate-spin h-12 w-12 border-4 border-green-600 border-t-transparent rounded-full"></div>
-                          </div>
-                        )}
-                        <img
-                          src={verificationData.certificateImageUrl}
-                          alt="E-Apostille Certificate"
-                          className="w-full h-auto max-w-[600px]"
-                          style={{ maxWidth: '100%' }}
-                          crossOrigin="anonymous"  // ✅ Helps with CORS
-                          onLoad={() => setCertImageLoading(false)}  // ✅ Hide spinner when loaded
-                          onError={() => {  // ✅ Handle image load error
-                            setCertImageLoading(false);
-                            setCertImageError(true);
-                            console.error("Certificate image failed to load");
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    // Fallback if no image URL or image failed to load
-                    <div className="flex flex-col items-center justify-center p-8 bg-gray-50 rounded-md space-y-4">
-                      <p className="text-gray-600 text-center">
-                        {certImageError 
-                          ? "সার্টিফিকেট ইমেজ লোড করতে ব্যর্থ হয়েছে" 
-                          : "সার্টিফিকেট ইমেজ উপলব্ধ নয়"}
-                      </p>
-                      <a 
-                        href={verificationData?.certificatePath} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        <FontAwesomeIcon icon={faDownload} className="mr-2" />
-                        PDF দেখুন
-                      </a>
-                    </div>
-                  )}
+  <div className="bg-white shadow-sm overflow-hidden">
+    <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+      <h2 className="text-xl font-bold text-gray-800">
+        অ্যাপোস্টিল
+      </h2>
+    </div>
+    <div className="p-4">
+      {/* Certificate Image - displays like a document, no iframe */}
+      <div className="flex justify-center">
+        <div className="bg-white mx-4 shadow-md rounded-md overflow-hidden">
+          {verificationData?.certificateImageUrl ? (
+            <img
+              src={verificationData.certificateImageUrl}
+              alt="E-Apostille Certificate"
+              className="w-full max-w-[405px] h-auto object-contain"
+              loading="lazy"
+              onError={(e) => {
+                console.error('Certificate image failed to load');
+                // Fallback to showing a placeholder with download button
+                (e.target as HTMLImageElement).style.display = 'none';
+                // You could show a placeholder div here
+              }}
+            />
+          ) : (
+            // Fallback for PDF-only URLs
+            <div className="w-[405px] h-[571px] bg-gray-100 flex items-center justify-center flex-col p-6 text-center">
+              <p className="text-gray-600 mb-4">প্রমাণপত্র দেখতে ডাউনলোড করুন</p>
+              <button
+                onClick={handleDownloadCertificate}
+                className="bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700"
+              >
+                <FontAwesomeIcon icon={faDownload} className="mr-2" />
+                ডাউনলোড করুন
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
 
-                  {/* Download button (PDF) */}
-                  <div className="max-w-2xl flex justify-end">
-                    <button
-                      onClick={handleDownloadCertificate}
-                      className="w-72 mt-4 bg-slate-900 text-white py-2 font-bold text-sm rounded-lg hover:bg-green-700 transition-all duration-300 shadow flex items-center justify-center gap-2"
-                    >
-                      <FontAwesomeIcon icon={faDownload} />
-                      অ্যাপোস্টিল ডাউনলোড করুন
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+      {/* Download button */}
+      <div className="max-w-2xl flex justify-end">
+        <button
+          onClick={handleDownloadCertificate}
+          className="w-72 mt-4 bg-slate-900 text-white py-2 font-bold text-sm rounded-lg hover:bg-green-700 transition-all duration-300 shadow flex items-center justify-center gap-2"
+        >
+          <FontAwesomeIcon icon={faDownload} />
+          অ্যাপোস্টিল ডাউনলোড করুন
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
             {/* Attested Documents Section */}
             {hasDocuments && (
@@ -403,6 +387,30 @@ const VerificationPage = () => {
                 <p className="text-xl">কোনো মূল নথি পাওয়া যায়নি</p>
               </div>
             )}
+
+            {/* Back Button */}
+            {/* <div className="px-4 pb-6">
+              <button
+                onClick={() => navigate(-1)}
+                className="w-full bg-white border-2 border-black text-black py-3.5 font-bold text-lg hover:bg-green-50 transition-all duration-300 shadow-md flex items-center justify-center gap-3"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="black"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.5}
+                    d="M10 19l-7-7m0 0l7-7m-7 7h18"
+                  />
+                </svg>
+                <span>ফিরে যান</span>
+              </button>
+            </div> */}
           </div>
         </div>
       </main>
