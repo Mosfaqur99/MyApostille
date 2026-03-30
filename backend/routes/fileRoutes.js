@@ -754,6 +754,12 @@ router.get('/files/verify/:identifier', async (req, res) => {
         }
         
         const uploadResult = await pool.query(uploadQuery, queryParams);
+
+        console.log('=== UPLOAD DATA DEBUG ===');
+console.log('certificate_pdf_path:', upload.certificate_pdf_path);
+console.log('certificate_number:', upload.certificate_number);
+console.log('status:', upload.status);
+console.log('=========================');
         
         if (uploadResult.rows.length === 0) {
             return res.status(404).json({ message: 'Certificate not found' });
@@ -846,48 +852,34 @@ router.get('/files/verify/:identifier', async (req, res) => {
         // ✅ CLOUDINARY MAGIC: Convert PDF to image on-the-fly via URL transformation
       // ✅ CLOUDINARY MAGIC: Convert PDF to image on-the-fly via URL transformation
 // ✅ CLOUDINARY MAGIC: Convert PDF to image on-the-fly via URL transformation
-let certificateImageUrl = null;
-
-if (upload.certificate_pdf_path) {
-    try {
-        // Check if it's a Cloudinary URL
-        if (upload.certificate_pdf_path.includes('cloudinary.com')) {
-            // More robust URL transformation
-            // Original: https://res.cloudinary.com/<cloud>/image/upload/v1234567890/apostille/certificates/certificate-123456789012.png.pdf
-            // Target:   https://res.cloudinary.com/<cloud>/image/upload/w_800,pg_1,f_png,q_auto/v1234567890/apostille/certificates/certificate-123456789012.png.png
-            
-            const originalUrl = upload.certificate_pdf_path;
-            
-            // Find the position after '/upload/' and before the version/path
-            const uploadIndex = originalUrl.indexOf('/upload/');
-            
-            if (uploadIndex !== -1) {
-                const beforeUpload = originalUrl.substring(0, uploadIndex + 7); // includes '/upload'
-                const afterUpload = originalUrl.substring(uploadIndex + 7);
+        // ✅ CLOUDINARY PDF TO IMAGE TRANSFORMATION
+        let certificateImageUrl = null;
+        
+        console.log('=== CERTIFICATE DEBUG ===');
+        console.log('PDF Path exists:', !!upload.certificate_pdf_path);
+        console.log('PDF Path value:', upload.certificate_pdf_path);
+        
+        if (upload.certificate_pdf_path && upload.certificate_pdf_path.includes('cloudinary.com')) {
+            try {
+                const pdfUrl = upload.certificate_pdf_path;
                 
-                // Insert transformation and change extension from .pdf to .png
-                certificateImageUrl = `${beforeUpload}w_800,pg_1,f_png,q_auto/${afterUpload.replace('.pdf', '.png')}`;
-                
-                console.log(`✅ Certificate image URL generated: ${certificateImageUrl}`);
-            } else {
-                // Fallback to simple replacement
-                certificateImageUrl = originalUrl
+                // Simple and reliable transformation
+                // Change: /upload/ to /upload/w_800,pg_1,f_png,q_auto/
+                // Change: .pdf to .png
+                certificateImageUrl = pdfUrl
                     .replace('/upload/', '/upload/w_800,pg_1,f_png,q_auto/')
                     .replace('.pdf', '.png');
+                
+                console.log('✅ Transformed to Image URL:', certificateImageUrl);
+            } catch (err) {
+                console.error('❌ Transformation error:', err);
+                certificateImageUrl = null;
             }
         } else {
-            console.log('⚠️ Non-Cloudinary certificate URL, skipping image conversion');
-            certificateImageUrl = null;
+            console.log('⚠️ No Cloudinary PDF found, skipping transformation');
         }
-    } catch (urlError) {
-        console.error('❌ Error generating certificate image URL:', urlError);
-        certificateImageUrl = null;
-    }
-}
-
-console.log('=== CLOUDINARY TRANSFORMATION DEBUG ===');
-console.log('Original PDF URL:', upload.certificate_pdf_path);
-console.log('Generated Image URL:', certificateImageUrl);
+        
+        console.log('Final certificateImageUrl:', certificateImageUrl);
         res.json({
             certificateNumber: upload.certificate_number,
             certificatePath: upload.certificate_pdf_path,
