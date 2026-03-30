@@ -884,25 +884,25 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.a
     const { cloudinary } = require('../config/cloudinary');
     
     // ✅ NEW - Allows transformations
-const certUploadResult = await new Promise((resolve, reject) => {
-  const uploadStream = cloudinary.uploader.upload_stream(
-    {
-      folder: 'apostille/certificates',
-      public_id: `certificate-${certNumber}`,
-      resource_type: 'image',  // ✅ CORRECT - allows PDF transformations
-      format: 'pdf'
-    },
-    (error, result) => {
-      if (error) reject(error);
-      else resolve(result);
-    }
-  );
-  streamifier.createReadStream(certResult.pdfBytes).pipe(uploadStream);
-});
+    const certUploadResult = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'apostille/certificates',
+          public_id: `certificate-${certNumber}`,
+          resource_type: 'image',  // ✅ CORRECT - allows PDF transformations
+          format: 'pdf'
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+      streamifier.createReadStream(certResult.pdfBytes).pipe(uploadStream);
+    });
     
     const certUrl = certUploadResult.secure_url;
 
-     // Step 5: Upload reuploaded files to Cloudinary
+    // Step 5: Upload reuploaded files to Cloudinary
     const reuploadedUrls = [];
     for (const file of req.files) {
       const result = await cloudinary.uploader.upload(file.path, {
@@ -912,10 +912,21 @@ const certUploadResult = await new Promise((resolve, reject) => {
       reuploadedUrls.push(result.secure_url);
     }
 
-    // MERGE with any existing reuploaded files (for batch uploads)
-    const existingUrls = upload.reuploaded_file_paths 
-      ? JSON.parse(upload.reuploaded_file_paths) 
-      : [];
+    // FIXED MERGE LOGIC: Safely parse existing reuploaded files
+    let existingUrls = [];
+    
+    if (upload.reuploaded_file_paths) {
+      try {
+        // Try to parse as JSON first
+        const parsed = JSON.parse(upload.reuploaded_file_paths);
+        // If it's an array, use it. If it's a string, wrap it in array
+        existingUrls = Array.isArray(parsed) ? parsed : [parsed];
+      } catch (e) {
+        // If JSON.parse fails, treat it as a plain string URL
+        existingUrls = [upload.reuploaded_file_paths];
+      }
+    }
+    
     const allReuploadedUrls = [...existingUrls, ...reuploadedUrls];
 
     // Step 6: Parse additional signers
@@ -969,7 +980,7 @@ const certUploadResult = await new Promise((resolve, reject) => {
       certNumber,
       certUrl,
       JSON.stringify(certificateData),
-      JSON.stringify(reuploadedUrls),
+      JSON.stringify(allReuploadedUrls),  // FIXED: Use merged URLs instead of just reuploadedUrls
       JSON.stringify(signaturesData),
       req.user.id,
       documentIssuer,
@@ -987,7 +998,7 @@ const certUploadResult = await new Promise((resolve, reject) => {
       message: 'e-APOSTILLE Certificate generated successfully',
       certificateNumber: certNumber,
       certificatePath: certUrl,
-      reuploadedFiles: reuploadedUrls
+      reuploadedFiles: allReuploadedUrls  // FIXED: Return all URLs
     });
 
   } catch (err) {
@@ -1052,10 +1063,22 @@ router.post('/verify/:id/add-files', verifyToken, authorizeRole('admin'), upload
       newReuploadedUrls.push(result.secure_url);
     }
 
+    // FIX: Parse existing reuploaded files safely
+    let existingUrls = [];
+    
+    if (upload.reuploaded_file_paths) {
+      try {
+        // Try to parse as JSON first
+        const parsed = JSON.parse(upload.reuploaded_file_paths);
+        // If it's an array, use it. If it's a string, wrap it in array
+        existingUrls = Array.isArray(parsed) ? parsed : [parsed];
+      } catch (e) {
+        // If JSON.parse fails, treat it as a plain string URL
+        existingUrls = [upload.reuploaded_file_paths];
+      }
+    }
+
     // Merge with existing files
-    const existingUrls = upload.reuploaded_file_paths 
-      ? JSON.parse(upload.reuploaded_file_paths) 
-      : [];
     const mergedUrls = [...existingUrls, ...newReuploadedUrls];
 
     // Update database
