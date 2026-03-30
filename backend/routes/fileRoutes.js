@@ -902,7 +902,7 @@ const certUploadResult = await new Promise((resolve, reject) => {
     
     const certUrl = certUploadResult.secure_url;
 
-    // Step 5: Upload reuploaded files to Cloudinary
+     // Step 5: Upload reuploaded files to Cloudinary
     const reuploadedUrls = [];
     for (const file of req.files) {
       const result = await cloudinary.uploader.upload(file.path, {
@@ -911,6 +911,12 @@ const certUploadResult = await new Promise((resolve, reject) => {
       });
       reuploadedUrls.push(result.secure_url);
     }
+
+    // MERGE with any existing reuploaded files (for batch uploads)
+    const existingUrls = upload.reuploaded_file_paths 
+      ? JSON.parse(upload.reuploaded_file_paths) 
+      : [];
+    const allReuploadedUrls = [...existingUrls, ...reuploadedUrls];
 
     // Step 6: Parse additional signers
     let signaturesData = [];
@@ -990,6 +996,97 @@ const certUploadResult = await new Promise((resolve, reject) => {
     
     res.status(500).json({
       message: 'Verification failed',
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Server error'
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// ============================================
+// NEW: Add more files to existing verification (for batches 2, 3, etc.)
+// ============================================
+router.post('/verify/:id/add-files', verifyToken, authorizeRole('admin'), uploadVerified.array('reuploadedFiles'), async (req, res) => {
+  const uploadId = req.params.id;
+  
+  const client = await pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+
+    // Fetch upload
+    const uploadResult = await client.query(
+      'SELECT * FROM uploads WHERE id = $1', 
+      [uploadId]
+    );
+    
+    if (uploadResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Upload not found' });
+    }
+    
+    const upload = uploadResult.rows[0];
+
+    // Must be verified to add more files
+    if (upload.status !== 'verified') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        message: 'Upload must be verified first before adding more files' 
+      });
+    }
+
+    if (!req.files || req.files.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'No files provided' });
+    }
+
+    // Upload new files to Cloudinary
+    const cloudinary = require('../config/cloudinary').cloudinary;
+    const newReuploadedUrls = [];
+    
+    for (const file of req.files) {
+      const result = await cloudinary.uploader.upload(file.path, {
+        folder: 'apostille/verified',
+        resource_type: 'auto'
+      });
+      newReuploadedUrls.push(result.secure_url);
+    }
+
+    // Merge with existing files
+    const existingUrls = upload.reuploaded_file_paths 
+      ? JSON.parse(upload.reuploaded_file_paths) 
+      : [];
+    const mergedUrls = [...existingUrls, ...newReuploadedUrls];
+
+    // Update database
+    const updateQuery = `
+      UPDATE uploads 
+      SET reuploaded_file_paths = $1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING id, certificate_number
+    `;
+
+    await client.query(updateQuery, [
+      JSON.stringify(mergedUrls),
+      uploadId
+    ]);
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: `${req.files.length} file(s) added successfully`,
+      filesAdded: req.files.length,
+      totalFiles: mergedUrls.length,
+      certificateNumber: upload.certificate_number
+    });
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Add files failed:', err);
+    res.status(500).json({
+      message: 'Failed to add files',
       error: process.env.NODE_ENV === 'development' ? err.message : 'Server error'
     });
   } finally {

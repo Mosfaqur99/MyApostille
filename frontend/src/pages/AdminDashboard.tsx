@@ -1,5 +1,5 @@
 // frontend/src/pages/AdminDashboard.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -19,6 +19,21 @@ const AdminDashboard = () => {
   const [additionalSigners, setAdditionalSigners] = useState<any[]>([]);
   const [selectedSigners, setSelectedSigners] = useState<{signerId: number, date: string}[]>([]);
   const [reuploadedFiles, setReuploadedFiles] = useState<File[]>([]);
+    // NEW FILE UPLOAD STATES (like UserDashboard)
+  const [isNewUploadModalOpen, setIsNewUploadModalOpen] = useState(false);
+  const [newUploadFiles, setNewUploadFiles] = useState<File[]>([]);
+  const [newUploadPreviews, setNewUploadPreviews] = useState<string[]>([]);
+  const [isDraggingNew, setIsDraggingNew] = useState(false);
+  const [isUploadingNew, setIsUploadingNew] = useState(false);
+  const newUploadDropRef = useRef<HTMLDivElement>(null);
+  const newUploadInputRef = useRef<HTMLInputElement>(null);
+  
+  // REUPLOAD STATES with preview (enhanced batch system)
+  const [reuploadPreviews, setReuploadPreviews] = useState<string[]>([]);
+  const [isDraggingReupload, setIsDraggingReupload] = useState(false);
+    const reuploadDropRef = useRef<HTMLDivElement>(null);
+  const reuploadInputRef = useRef<HTMLInputElement>(null);
+ 
   
   // Certificate data state
   const [certificateData, setCertificateData] = useState({
@@ -56,11 +71,176 @@ const AdminDashboard = () => {
     fetchData();
   }, []);
 
+
+  useEffect(() => {
+    return () => {
+      newUploadPreviews.forEach(url => URL.revokeObjectURL(url));
+      reuploadPreviews.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, []);
   useEffect(() => {
     if (selectedUpload) {
       fetchAdditionalSigners();
     }
   }, [selectedUpload]);
+
+
+    // ==================== NEW FILE UPLOAD FUNCTIONS (like UserDashboard) ====================
+  
+  const handleNewUploadFileSelect = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    const filesArray = Array.from(files);
+    const validImages: File[] = [];
+    const invalidFiles: string[] = [];
+
+    filesArray.forEach(file => {
+      if (file.type !== 'image/png' && file.type !== 'image/jpeg' && file.type !== 'image/jpg') {
+        invalidFiles.push(file.name);
+        return;
+      }
+      
+      if (file.size > 5 * 1024 * 1024) {
+        invalidFiles.push(`${file.name} (too large)`);
+        return;
+      }
+      
+      validImages.push(file);
+    });
+
+    if (invalidFiles.length > 0) {
+      toast.error(`Invalid files: ${invalidFiles.join(', ')}. Only PNG/JPEG under 5MB allowed.`);
+    }
+
+    if (validImages.length === 0) return;
+
+    setNewUploadFiles(prev => [...prev, ...validImages]);
+    
+    // Generate preview URLs
+    const newUrls = validImages.map(file => URL.createObjectURL(file));
+    setNewUploadPreviews(prev => [...prev, ...newUrls]);
+    
+    if (newUploadInputRef.current) {
+      newUploadInputRef.current.value = '';
+    }
+    
+    toast.success(`Added ${validImages.length} image${validImages.length > 1 ? 's' : ''} to upload`);
+  };
+
+  const handleNewUploadDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingNew(false);
+    handleNewUploadFileSelect(e.dataTransfer.files);
+  };
+
+  const removeNewUploadFile = (index: number) => {
+    setNewUploadFiles(prev => prev.filter((_, i) => i !== index));
+    setNewUploadPreviews(prev => {
+      URL.revokeObjectURL(prev[index]);
+      return prev.filter((_, i) => i !== index);
+    });
+    toast.info('File removed');
+  };
+
+  const clearNewUploadSelection = () => {
+    setNewUploadFiles([]);
+    newUploadPreviews.forEach(url => URL.revokeObjectURL(url));
+    setNewUploadPreviews([]);
+    toast.info('Selection cleared');
+  };
+
+  // Handle NEW file upload (admin creating new upload) with batch support
+  const handleNewUploadSubmit = async () => {
+    if (newUploadFiles.length === 0) {
+      toast.error('Please select at least one image');
+      return;
+    }
+
+    const BATCH_SIZE = 10;
+    const batches = [];
+    
+    for (let i = 0; i < newUploadFiles.length; i += BATCH_SIZE) {
+      batches.push(newUploadFiles.slice(i, i + BATCH_SIZE));
+    }
+
+    setIsUploadingNew(true);
+    let uploadId: string | null = null;
+    let totalUploaded = 0;
+
+    try {
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
+        const formData = new FormData();
+        
+        batch.forEach(file => {
+          formData.append('files', file);
+        });
+
+        const endpoint: string = i === 0 
+          ? '/files/upload' 
+          : `/files/upload/${uploadId}/add-files`;
+
+        if (i > 0) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+        const response = await api.post(endpoint, formData, {
+          timeout: 60000,
+          onUploadProgress: (progressEvent: any) => {
+            if (progressEvent.total) {
+              const batchPercent = (progressEvent.loaded * 100) / progressEvent.total;
+              const overallProgress = Math.round(
+                ((i * 100 + batchPercent) / (batches.length * 100)) * 100
+              );
+              console.log(`Batch ${i + 1}/${batches.length}: ${Math.round(batchPercent)}% (Overall: ${overallProgress}%)`);
+            }
+          }
+        });
+
+        if (i === 0 && response.data?.data?.id) {
+          uploadId = response.data.data.id;
+        }
+
+        totalUploaded += batch.length;
+        
+        if (batches.length > 1) {
+          toast.success(`✅ Batch ${i + 1}/${batches.length}: ${batch.length} files added`);
+        }
+      }
+
+      toast.success(`🎉 ${totalUploaded} files uploaded successfully!`);
+      
+      newUploadPreviews.forEach(url => URL.revokeObjectURL(url));
+      setNewUploadFiles([]);
+      setNewUploadPreviews([]);
+      setIsNewUploadModalOpen(false);
+      
+      // Refresh lists
+      const [pendingRes, completedRes] = await Promise.all([
+        api.get('/files/pending'),
+        api.get('/files/completed')
+      ]);
+      setPendingUploads(pendingRes.data);
+      setCompletedUploads(completedRes.data);
+      
+    } catch (error: any) {
+      console.error('Upload process failed:', error);
+      
+      if (totalUploaded > 0) {
+        toast.warning(`⚠️ ${totalUploaded} files uploaded, but process incomplete.`);
+        const [pendingRes, completedRes] = await Promise.all([
+          api.get('/files/pending'),
+          api.get('/files/completed')
+        ]);
+        setPendingUploads(pendingRes.data);
+        setCompletedUploads(completedRes.data);
+      } else {
+        toast.error(`Upload failed: ${error.response?.data?.message || error.message}`);
+      }
+    } finally {
+      setIsUploadingNew(false);
+    }
+  };
 
   const fetchAdditionalSigners = async () => {
     try {
@@ -116,15 +296,92 @@ const AdminDashboard = () => {
     }
   };
 
+
+    // ==================== REUPLOAD FUNCTIONS (Enhanced with batch + preview) ====================
+  
+  const handleReuploadFileSelect = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    const filesArray = Array.from(files);
+    const validFiles: File[] = [];
+    const invalidFiles: string[] = [];
+
+    filesArray.forEach(file => {
+      if (!['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'].includes(file.type)) {
+        invalidFiles.push(file.name);
+        return;
+      }
+      
+      if (file.size > 10 * 1024 * 1024) {
+        invalidFiles.push(`${file.name} (too large)`);
+        return;
+      }
+      
+      validFiles.push(file);
+    });
+
+    if (invalidFiles.length > 0) {
+      toast.error(`Invalid files: ${invalidFiles.join(', ')}. Only PNG/JPG/PDF under 10MB allowed.`);
+    }
+
+    if (validFiles.length === 0) return;
+
+    setReuploadedFiles(prev => [...prev, ...validFiles]);
+    
+    // Generate preview URLs for images only
+    const newPreviews = validFiles.map(file => {
+      if (file.type.startsWith('image/')) {
+        return URL.createObjectURL(file);
+      }
+      return 'pdf';
+    });
+    
+    setReuploadPreviews(prev => [...prev, ...newPreviews]);
+    
+    if (reuploadInputRef.current) {
+      reuploadInputRef.current.value = '';
+    }
+    
+    toast.success(`${validFiles.length} file(s) added for re-upload`);
+  };
+
+  const handleReuploadDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingReupload(false);
+    handleReuploadFileSelect(e.dataTransfer.files);
+  };
+
+  const removeReuploadFile = (index: number) => {
+    setReuploadedFiles(prev => prev.filter((_, i) => i !== index));
+    setReuploadPreviews(prev => {
+      if (prev[index] !== 'pdf') {
+        URL.revokeObjectURL(prev[index]);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+    toast.info('File removed');
+  };
+
+  const clearReuploadSelection = () => {
+    setReuploadedFiles([]);
+    reuploadPreviews.forEach(url => {
+      if (url !== 'pdf') URL.revokeObjectURL(url);
+    });
+    setReuploadPreviews([]);
+    toast.info('Selection cleared');
+  };
+
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
-  const handleVerifyClick = (upload: any) => {
+    const handleVerifyClick = (upload: any) => {
     setSelectedUpload(upload);
     setSelectedSigners([]);
     setReuploadedFiles([]);
+    reuploadPreviews.forEach(url => { if (url !== 'pdf') URL.revokeObjectURL(url); });
+    setReuploadPreviews([]);
     
     setCertificateData({
       documentIssuer: upload.user_name || '',
@@ -136,123 +393,118 @@ const AdminDashboard = () => {
     });
   };
 
+    // Enhanced handleVerify with batch reupload (more than 10 files)
   const handleVerify = async () => {
-  if (!selectedUpload) return;
-  
-  if (!certificateData.documentIssuer || !certificateData.actingCapacity || 
-      !certificateData.documentLocation || !certificateData.certificateLocation || 
-      !certificateData.certificateDate || !certificateData.authorityName) {
-    toast.error('All certificate fields are required');
-    return;
-  }
-
-  if (reuploadedFiles.length === 0) {
-    toast.error('Please re-upload documents with stamps (Field 8)');
-    return;
-  }
-
-  // BATCH UPLOAD for more than 10 files
-  const BATCH_SIZE = 10;
-  const batches = [];
-  
-  for (let i = 0; i < reuploadedFiles.length; i += BATCH_SIZE) {
-    batches.push(reuploadedFiles.slice(i, i + BATCH_SIZE));
-  }
-
-  setIsVerifying(true);
-  
-  try {
-    // For single batch (10 or fewer files), use original endpoint
-    if (batches.length === 1) {
-      const formData = new FormData();
-      
-      reuploadedFiles.forEach(file => {
-        formData.append('reuploadedFiles', file);
-      });
-      
-      formData.append('documentIssuer', certificateData.documentIssuer);
-      formData.append('documentTitle', certificateData.actingCapacity);
-      formData.append('documentLocation', certificateData.documentLocation);
-      formData.append('certificateLocation', certificateData.certificateLocation);
-      formData.append('certificateDate', certificateData.certificateDate);
-      formData.append('authorityName', certificateData.authorityName);
-      formData.append('additionalSigners', JSON.stringify(selectedSigners));
-      
-      const response = await api.post(
-        `/files/verify/${selectedUpload.id}`,
-        formData
-      );
-      
-      toast.success('e-APOSTILLE Certificate and signed documents generated successfully!');
-      
-    } else {
-      // MULTIPLE BATCHES: Use new endpoint for additional files
-      toast.info(`Uploading ${reuploadedFiles.length} files in ${batches.length} batches...`);
-      
-      // First batch with certificate generation
-      const firstBatch = batches[0];
-      const formData = new FormData();
-      
-      firstBatch.forEach(file => {
-        formData.append('reuploadedFiles', file);
-      });
-      
-      formData.append('documentIssuer', certificateData.documentIssuer);
-      formData.append('documentTitle', certificateData.actingCapacity);
-      formData.append('documentLocation', certificateData.documentLocation);
-      formData.append('certificateLocation', certificateData.certificateLocation);
-      formData.append('certificateDate', certificateData.certificateDate);
-      formData.append('authorityName', certificateData.authorityName);
-      formData.append('additionalSigners', JSON.stringify(selectedSigners));
-      formData.append('totalBatches', batches.length.toString());
-      
-      const response = await api.post(
-        `/files/verify/${selectedUpload.id}`,
-        formData
-      );
-      
-      const certificateNumber = response.data.certificateNumber;
-      
-      // Subsequent batches - add files only
-      for (let i = 1; i < batches.length; i++) {
-        toast.info(`Uploading batch ${i + 1}/${batches.length}...`);
-        
-        // Delay between batches
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        const batchFormData = new FormData();
-        batches[i].forEach(file => {
-          batchFormData.append('reuploadedFiles', file);
-        });
-        
-        await api.post(
-          `/files/verify/${selectedUpload.id}/add-files`,
-          batchFormData
-        );
-      }
-      
-      toast.success(`e-APOSTILLE generated with ${reuploadedFiles.length} documents!`);
+    if (!selectedUpload) return;
+    
+    if (!certificateData.documentIssuer || !certificateData.actingCapacity || 
+        !certificateData.documentLocation || !certificateData.certificateLocation || 
+        !certificateData.certificateDate || !certificateData.authorityName) {
+      toast.error('All certificate fields are required');
+      return;
     }
 
-    // Refresh data
-    const [pendingRes, completedRes] = await Promise.all([
-      api.get('/files/pending'),
-      api.get('/files/completed')
-    ]);
+    if (reuploadedFiles.length === 0) {
+      toast.error('Please re-upload documents with stamps (Field 8)');
+      return;
+    }
+
+    const BATCH_SIZE = 10;
+    const batches = [];
     
-    setPendingUploads(pendingRes.data);
-    setCompletedUploads(completedRes.data);
-    setSelectedUpload(null);
-    setSelectedSigners([]);
-    setReuploadedFiles([]);
+    for (let i = 0; i < reuploadedFiles.length; i += BATCH_SIZE) {
+      batches.push(reuploadedFiles.slice(i, i + BATCH_SIZE));
+    }
+
+    setIsVerifying(true);
     
-  } catch (error: any) {
-    console.error('Verification failed', error);
-    toast.error(error.response?.data?.message || error.response?.data?.error || 'Certificate generation failed');
-  } finally {
-    setIsVerifying(false);
-  }
-};
+    try {
+      if (batches.length === 1) {
+        // Single batch - use original endpoint
+        const formData = new FormData();
+        
+        reuploadedFiles.forEach(file => {
+          formData.append('reuploadedFiles', file);
+        });
+        
+        formData.append('documentIssuer', certificateData.documentIssuer);
+        formData.append('documentTitle', certificateData.actingCapacity);
+        formData.append('documentLocation', certificateData.documentLocation);
+        formData.append('certificateLocation', certificateData.certificateLocation);
+        formData.append('certificateDate', certificateData.certificateDate);
+        formData.append('authorityName', certificateData.authorityName);
+        formData.append('additionalSigners', JSON.stringify(selectedSigners));
+        
+        await api.post(`/files/verify/${selectedUpload.id}`, formData);
+        
+        toast.success('e-APOSTILLE Certificate and signed documents generated successfully!');
+        
+      } else {
+        // MULTIPLE BATCHES
+        toast.info(`Uploading ${reuploadedFiles.length} files in ${batches.length} batches...`);
+        
+        // First batch with certificate generation
+        const firstBatch = batches[0];
+        const formData = new FormData();
+        
+        firstBatch.forEach(file => {
+          formData.append('reuploadedFiles', file);
+        });
+        
+        formData.append('documentIssuer', certificateData.documentIssuer);
+        formData.append('documentTitle', certificateData.actingCapacity);
+        formData.append('documentLocation', certificateData.documentLocation);
+        formData.append('certificateLocation', certificateData.certificateLocation);
+        formData.append('certificateDate', certificateData.certificateDate);
+        formData.append('authorityName', certificateData.authorityName);
+        formData.append('additionalSigners', JSON.stringify(selectedSigners));
+        formData.append('totalBatches', batches.length.toString());
+        
+        const response = await api.post(`/files/verify/${selectedUpload.id}`, formData);
+        
+        // Subsequent batches - add files only
+        for (let i = 1; i < batches.length; i++) {
+          toast.info(`Uploading batch ${i + 1}/${batches.length}...`);
+          
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          
+          const batchFormData = new FormData();
+          batches[i].forEach(file => {
+            batchFormData.append('reuploadedFiles', file);
+          });
+          
+          await api.post(
+            `/files/verify/${selectedUpload.id}/add-files`,
+            batchFormData
+          );
+        }
+        
+        toast.success(`e-APOSTILLE generated with ${reuploadedFiles.length} documents!`);
+      }
+
+      // Refresh data
+      const [pendingRes, completedRes] = await Promise.all([
+        api.get('/files/pending'),
+        api.get('/files/completed')
+      ]);
+      
+      setPendingUploads(pendingRes.data);
+      setCompletedUploads(completedRes.data);
+      
+      // Cleanup
+      reuploadPreviews.forEach(url => { if (url !== 'pdf') URL.revokeObjectURL(url); });
+      setReuploadedFiles([]);
+      setReuploadPreviews([]);
+      setSelectedUpload(null);
+      setSelectedSigners([]);
+      
+    } catch (error: any) {
+      console.error('Verification failed', error);
+      toast.error(error.response?.data?.message || error.response?.data?.error || 'Certificate generation failed');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   const handleDeleteUpload = async (uploadId: number) => {
     if (!window.confirm('আপনি কি নিশ্চিত আপনি এই আবেদনটি মুছে ফেলতে চান?')) {
@@ -342,6 +594,21 @@ const AdminDashboard = () => {
             </p>
           </div>
           
+          <button 
+              
+              onClick={() => {
+                setNewUploadFiles([]);
+                newUploadPreviews.forEach(url => URL.revokeObjectURL(url));
+                setNewUploadPreviews([]);
+                setIsNewUploadModalOpen(true);
+              }}
+              className="bg-green-600 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-green-700 transition-all duration-300 shadow-md hover:shadow-lg flex items-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              নতুন আবেদন আপলোড
+            </button>
           <button 
             onClick={handleLogout}
             className="flex items-center gap-2 bg-red-100 text-red-700 px-5 py-2.5 rounded-lg hover:bg-red-200 transition-colors font-medium group"
@@ -545,6 +812,177 @@ const AdminDashboard = () => {
           </div>
         </div>
 
+                {/* NEW UPLOAD MODAL (like UserDashboard) */}
+        {isNewUploadModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-auto">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+              <div className="p-5 border-b border-gray-200 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  নতুন আবেদন তৈরি করুন (অ্যাডমিন)
+                </h3>
+                <button 
+                  onClick={() => {
+                    setIsNewUploadModalOpen(false);
+                    setNewUploadFiles([]);
+                    newUploadPreviews.forEach(url => URL.revokeObjectURL(url));
+                    setNewUploadPreviews([]);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto">
+                {/* Drop Zone */}
+                <div 
+                  ref={newUploadDropRef}
+                  className={`border-4 border-dashed rounded-2xl p-12 text-center transition-all duration-300 mb-6 ${
+                    isDraggingNew 
+                      ? 'border-green-500 bg-green-50 animate-pulse' 
+                      : 'border-gray-300 bg-white hover:border-green-400 hover:bg-gray-50'
+                  }`}
+                  onDrop={handleNewUploadDrop}
+                  onDragOver={(e) => { e.preventDefault(); setIsDraggingNew(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); setIsDraggingNew(false); }}
+                  onClick={() => newUploadInputRef.current?.click()}
+                >
+                  <input
+                    type="file"
+                    ref={newUploadInputRef}
+                    className="hidden"
+                    accept="image/png, image/jpeg"
+                    multiple
+                    onChange={(e) => handleNewUploadFileSelect(e.target.files)}
+                  />
+                  
+                  <div className="mx-auto w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-6">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                  </div>
+                  
+                  <h2 className="text-2xl font-bold text-gray-800 mb-3">ফাইল আপলোড করুন</h2>
+                  <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                    আপনার ফাইলগুলো এখানে টেনে আনুন অথবা ক্লিক করে ফাইল নির্বাচন করুন
+                  </p>
+                  
+                  <div className="flex justify-center">
+                    <button className="bg-green-600 text-white px-8 py-3 rounded-lg font-medium hover:bg-green-700 transition-colors shadow-md hover:shadow-lg">
+                      ফাইল নির্বাচন করুন
+                    </button>
+                  </div>
+                  
+                  <p className="text-gray-500 text-sm mt-4">
+                    সমর্থিত ফর্ম্যাট: PNG, JPG | প্রতিটি ফাইলের সর্বোচ্চ আকার: 5MB
+                  </p>
+                </div>
+
+                {/* Preview Section */}
+                {newUploadFiles.length > 0 && (
+                  <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="font-bold text-gray-800">নির্বাচিত ইমেজ ({newUploadFiles.length})</h4>
+                      <button
+                        onClick={clearNewUploadSelection}
+                        className="text-red-600 hover:text-red-800 font-medium text-sm flex items-center gap-1"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        সব মুছুন
+                      </button>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {newUploadPreviews.map((url, index) => (
+                        <div key={index} className="border rounded-lg overflow-hidden bg-white relative group">
+                          <div className="aspect-square relative">
+                            <img 
+                              src={url} 
+                              alt={`Preview ${index + 1}`} 
+                              className="w-full h-full object-cover"
+                            />
+                            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-opacity flex items-center justify-center">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeNewUploadFile(index);
+                                }}
+                                className="bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                          <div className="p-2">
+                            <p className="text-xs font-medium text-gray-800 truncate">
+                              {newUploadFiles[index].name.length > 15 
+                                ? newUploadFiles[index].name.substring(0, 12) + '...' 
+                                : newUploadFiles[index].name}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {Math.round(newUploadFiles[index].size / 1024)} KB
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setIsNewUploadModalOpen(false);
+                    setNewUploadFiles([]);
+                    newUploadPreviews.forEach(url => URL.revokeObjectURL(url));
+                    setNewUploadPreviews([]);
+                  }}
+                  className="px-5 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-medium"
+                >
+                  বাতিল করুন
+                </button>
+                <button
+                  onClick={handleNewUploadSubmit}
+                  disabled={isUploadingNew || newUploadFiles.length === 0}
+                  className={`px-5 py-2.5 rounded-lg font-medium text-white flex items-center gap-2 ${
+                    isUploadingNew 
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : 'bg-green-600 hover:bg-green-700'
+                  } shadow-md hover:shadow-lg transition-colors`}
+                >
+                  {isUploadingNew ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      আপলোড হচ্ছে{newUploadFiles.length > 10 ? ` (${Math.ceil(newUploadFiles.length / 10)} ব্যাচ)` : ''}...
+                    </>
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      {newUploadFiles.length}টি ইমেজ জমা দিন
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+
         {/* VERIFICATION MODAL - FULL FORM */}
         {selectedUpload && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -706,31 +1144,108 @@ const AdminDashboard = () => {
                     </p>
                   </div>
 
-                  {/* Field 8: Re-upload Documents */}
+                  
+                   {/* Field 8: Enhanced Re-upload with Drag & Drop + Preview */}
                   <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       <span className="bg-yellow-600 text-white text-xs font-bold px-2 py-0.5 rounded mr-2">8</span>
                       Re-upload Documents with Stamps/Annotations *
                     </label>
-                    <input
-                      type="file"
-                      multiple
-                      accept="image/*,application/pdf"
-                      onChange={handleReuploadFiles}
-                      className="w-full px-3 py-2 border border-yellow-300 rounded-lg bg-white"
-                    />
-                    <p className="text-xs text-yellow-700 mt-1">
-                      {reuploadedFiles.length > 0 ? `${reuploadedFiles.length} file(s) selected` : 'No files selected'}
-                    </p>
+                    
+                    {/* Drag & Drop Zone */}
+                    <div 
+                      ref={reuploadDropRef}
+                      className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer mb-4 ${
+                        isDraggingReupload 
+                          ? 'border-green-500 bg-green-50' 
+                          : 'border-yellow-300 bg-white hover:border-yellow-400'
+                      }`}
+                      onDrop={handleReuploadDrop}
+                      onDragOver={(e) => { e.preventDefault(); setIsDraggingReupload(true); }}
+                      onDragLeave={(e) => { e.preventDefault(); setIsDraggingReupload(false); }}
+                      onClick={() => reuploadInputRef.current?.click()}
+                    >
+                      <input
+                        type="file"
+                        ref={reuploadInputRef}
+                        className="hidden"
+                        accept="image/png,image/jpeg,image/jpg,application/pdf"
+                        multiple
+                        onChange={(e) => handleReuploadFileSelect(e.target.files)}
+                      />
+                      
+                      <div className="mx-auto w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mb-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
+                      </div>
+                      
+                      <p className="text-gray-700 font-medium">ফাইল টেনে আনুন অথবা ক্লিক করুন</p>
+                      <p className="text-xs text-gray-500 mt-1">PNG, JPG, PDF | সর্বোচ্চ 10MB</p>
+                    </div>
+
+                    {/* File Count & Clear Button */}
                     {reuploadedFiles.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {reuploadedFiles.map((file, idx) => (
-                          <p key={idx} className="text-xs text-gray-600 flex items-center gap-1">
-                            <svg className="h-3 w-3 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                            {file.name}
-                          </p>
+                      <div className="flex justify-between items-center mb-3">
+                        <span className="text-sm font-medium text-gray-700">
+                          {reuploadedFiles.length} file(s) selected 
+                          {reuploadedFiles.length > 10 && (
+                            <span className="text-yellow-600 ml-1">({Math.ceil(reuploadedFiles.length / 10)} batches)</span>
+                          )}
+                        </span>
+                        <button
+                          onClick={clearReuploadSelection}
+                          className="text-red-600 hover:text-red-800 text-sm font-medium flex items-center gap-1"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          Clear All
+                        </button>
+                      </div>
+                    )}
+
+                    {/* File Previews Grid */}
+                    {reuploadedFiles.length > 0 && (
+                      <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-64 overflow-y-auto p-2 bg-white rounded-lg border border-yellow-200">
+                        {reuploadedFiles.map((file, index) => (
+                          <div key={index} className="border rounded-lg overflow-hidden bg-gray-50 relative group">
+                            <div className="aspect-square relative">
+                              {file.type === 'application/pdf' || reuploadPreviews[index] === 'pdf' ? (
+                                <div className="w-full h-full flex flex-col items-center justify-center bg-red-50 p-2">
+                                  <div className="text-2xl">📄</div>
+                                  <p className="text-[10px] text-gray-600 text-center mt-1 truncate w-full px-1">PDF</p>
+                                </div>
+                              ) : (
+                                <img 
+                                  src={reuploadPreviews[index]} 
+                                  alt={`Preview ${index + 1}`}
+                                  className="w-full h-full object-cover"
+                                />
+                              )}
+                              
+                              {/* Remove Button */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeReuploadFile(index);
+                                }}
+                                className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                            <div className="p-1.5">
+                              <p className="text-[10px] font-medium text-gray-800 truncate" title={file.name}>
+                                {file.name.length > 12 ? file.name.substring(0, 10) + '...' : file.name}
+                              </p>
+                              <p className="text-[9px] text-gray-500">
+                                {Math.round(file.size / 1024)} KB
+                              </p>
+                            </div>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -810,9 +1325,14 @@ const AdminDashboard = () => {
 
                 {/* Action Buttons */}
                 <div className="mt-6 pt-4 border-t border-gray-200 flex flex-col sm:flex-row justify-end gap-3">
-                  <button
-                    onClick={() => setSelectedUpload(null)}
-                    className="px-5 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-medium w-full sm:w-auto"
+                                    <button 
+                    onClick={() => {
+                      setSelectedUpload(null);
+                      reuploadPreviews.forEach(url => { if (url !== 'pdf') URL.revokeObjectURL(url); });
+                      setReuploadedFiles([]);
+                      setReuploadPreviews([]);
+                    }}
+                    className="text-gray-400 hover:text-gray-600 transition-colors p-1 hover:bg-gray-100 rounded-full"
                   >
                     Cancel
                   </button>
