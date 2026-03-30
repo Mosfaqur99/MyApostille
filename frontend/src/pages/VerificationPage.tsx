@@ -221,6 +221,7 @@ const VerificationPage = () => {
         <div className="container mx-auto">
           <div className="w-full space-y-6">
             {/* E-Apostille Certificate Section */}
+{/* E-Apostille Certificate Section */}
 {hasCertificate && (
   <div className="bg-white shadow-sm overflow-hidden">
     <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
@@ -228,32 +229,30 @@ const VerificationPage = () => {
     </div>
     
     <div className="p-4 flex flex-col items-center">
-      {/* Show Image Version of Certificate */}
+      {/* FIX: Check for Image URL first to avoid iframe */}
       {verificationData.certificateImageUrl ? (
         <img 
           src={verificationData.certificateImageUrl} 
-          alt="Certificate Preview" 
+          alt="Certificate" 
           className="w-full max-w-4xl h-auto border shadow-sm mb-4"
-          onError={(e) => {
-            // Fallback if image fails: try showing PDF in iframe
-            (e.target as HTMLImageElement).style.display = 'none';
-          }}
+          loading="lazy"
         />
-      ) : (
-        /* Fallback to iframe if no Image URL is generated */
+      ) : verificationData.certificatePath?.toLowerCase().endsWith(".pdf") ? (
         <iframe 
           src={`https://docs.google.com/viewer?url=${encodeURIComponent(verificationData.certificatePath)}&embedded=true`}
           className="w-full h-[600px] border-none mb-4"
+          title="Certificate PDF"
         />
+      ) : (
+        <img src={verificationData.certificatePath} alt="Certificate" className="w-full h-auto mb-4" />
       )}
 
-      {/* Download Button - Always links to the original PDF */}
       <button 
         onClick={handleDownloadCertificate} 
-        className="w-72 bg-slate-900 text-white py-3 font-bold rounded-lg hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+        className="w-72 mt-4 bg-slate-900 text-white py-2 font-bold text-sm rounded-lg hover:bg-green-700 transition-all duration-300 shadow flex items-center justify-center gap-2"
       >
         <FontAwesomeIcon icon={faDownload} /> 
-        অ্যাপোস্টিল ডাউনলোড করুন (PDF)
+        অ্যাপোস্টিল ডাউনলোড করুন
       </button>
     </div>
   </div>

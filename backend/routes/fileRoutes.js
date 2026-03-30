@@ -724,9 +724,8 @@ router.get('/files/verify/:identifier', async (req, res) => {
         let uploadQuery;
         let queryParams;
         
-        // Check if it's a 12-digit certificate number
+        // 1. Determine if searching by 12-digit Cert Number or ID
         if (/^\d{12}$/.test(identifier)) {
-            // Search by certificate number
             uploadQuery = `
                 SELECT u.*, 
                        usr.name as user_name, 
@@ -739,7 +738,6 @@ router.get('/files/verify/:identifier', async (req, res) => {
             `;
             queryParams = [identifier];
         } else {
-            // Search by upload ID (for backwards compatibility)
             uploadQuery = `
                 SELECT u.*, 
                        usr.name as user_name, 
@@ -750,24 +748,24 @@ router.get('/files/verify/:identifier', async (req, res) => {
                 LEFT JOIN users verifier ON u.verified_by = verifier.id
                 WHERE u.id = $1
             `;
-            queryParams = [parseInt(identifier)];
+            queryParams = [isNaN(identifier) ? 0 : parseInt(identifier)];
         }
         
         const uploadResult = await pool.query(uploadQuery, queryParams);
-
-        console.log('=== UPLOAD DATA DEBUG ===');
-console.log('certificate_pdf_path:', upload.certificate_pdf_path);
-console.log('certificate_number:', upload.certificate_number);
-console.log('status:', upload.status);
-console.log('=========================');
         
         if (uploadResult.rows.length === 0) {
             return res.status(404).json({ message: 'Certificate not found' });
         }
         
         const upload = uploadResult.rows[0];
+
+        // Debugging (Now safely placed after 'upload' is defined)
+        console.log('=== VERIFICATION DEBUG ===');
+        console.log('Cert Path:', upload.certificate_pdf_path);
+        console.log('Cert Number:', upload.certificate_number);
+        console.log('==========================');
         
-        // Parse additional_signatures_data JSONB to get signers
+        // 2. Parse Signers
         let signers = [];
         if (upload.additional_signatures_data) {
             try {
@@ -786,96 +784,67 @@ console.log('=========================');
                     }));
                 }
             } catch (e) {
-                console.warn('Failed to parse additional_signatures_data:', e.message);
+                console.warn('Failed to parse signers:', e.message);
             }
         }
         
-        // Build documents array from reuploaded files
+        // 3. Build documents array
         let documents = [];
-        
-        if (upload.reuploaded_file_paths) {
+        const processPaths = (paths) => {
+            const parsed = typeof paths === 'string' ? JSON.parse(paths) : paths;
+            return Array.isArray(parsed) ? parsed : [parsed];
+        };
+
+        try {
+            if (upload.reuploaded_file_paths) {
+                const paths = processPaths(upload.reuploaded_file_paths);
+                documents = paths.map((path, index) => ({
+                    url: path.path || path,
+                    originalName: `Document ${index + 1}`,
+                    fileType: 'image/jpeg',
+                    signers: signers
+                }));
+            } else if (upload.file_paths) {
+                const paths = processPaths(upload.file_paths);
+                documents = paths.map((path, index) => ({
+                    url: path.path || path,
+                    originalName: upload.original_filename || `Document ${index + 1}`,
+                    fileType: upload.file_type,
+                    signers: signers
+                }));
+            } else if (upload.file_path) {
+                documents = [{
+                    url: upload.file_path,
+                    originalName: upload.original_filename,
+                    fileType: upload.file_type,
+                    signers: signers
+                }];
+            }
+        } catch (e) {
+            console.warn('Document parsing error:', e.message);
+        }
+
+        // 4. ✅ CLOUDINARY PDF TO IMAGE TRANSFORMATION
+        // This creates a mobile-friendly preview image of the PDF
+        let certificateImageUrl = null;
+        if (upload.certificate_pdf_path && upload.certificate_pdf_path.includes('cloudinary.com')) {
             try {
-                const reuploaded = typeof upload.reuploaded_file_paths === 'string'
-                    ? JSON.parse(upload.reuploaded_file_paths)
-                    : upload.reuploaded_file_paths;
-                
-                if (Array.isArray(reuploaded) && reuploaded.length > 0) {
-                    documents = reuploaded.map((path, index) => ({
-                        url: path,
-                        originalName: `Document ${index + 1}`,
-                        fileType: 'image/jpeg',
-                        signers: signers
-                    }));
-                }
+                // pg_1: First page only
+                // f_png: Force output to PNG
+                // w_1000: Good resolution for mobile zoom
+                certificateImageUrl = upload.certificate_pdf_path
+                    .replace('/upload/', '/upload/w_1000,pg_1,f_png,q_auto/')
+                    .replace('.pdf', '.png'); 
             } catch (e) {
-                console.warn('Failed to parse reuploaded_file_paths:', e.message);
+                console.error('Image Transformation error:', e);
             }
         }
-        
-        // Fallback to original files if no reuploaded files
-        if (documents.length === 0 && upload.file_paths) {
-            try {
-                const files = typeof upload.file_paths === 'string'
-                    ? JSON.parse(upload.file_paths)
-                    : upload.file_paths;
-                
-                if (Array.isArray(files)) {
-                    documents = files.map((path, index) => ({
-                        url: path,
-                        originalName: upload.original_filename || `Document ${index + 1}`,
-                        fileType: upload.file_type,
-                        signers: signers
-                    }));
-                } else if (files) {
-                    documents = [{
-                        url: files,
-                        originalName: upload.original_filename,
-                        fileType: upload.file_type,
-                        signers: signers
-                    }];
-                }
-            } catch (e) {
-                console.warn('Failed to parse file_paths:', e.message);
-            }
-        }
-        
-        // Final fallback to single file_path
-        if (documents.length === 0 && upload.file_path) {
-            documents = [{
-                url: upload.file_path,
-                originalName: upload.original_filename,
-                fileType: upload.file_type,
-                signers: signers
-            }];
-        }
 
-        // ✅ CLOUDINARY MAGIC: Convert PDF to image on-the-fly via URL transformation
-     // In the GET /files/verify/:identifier route, replace the transformation section with:
-
-// ✅ CLOUDINARY PDF TO IMAGE TRANSFORMATION - FIXED
-let certificateImageUrl = null;
-
-if (upload.certificate_pdf_path && upload.certificate_pdf_path.includes('cloudinary.com')) {
-    try {
-        // Cloudinary transformation: w_800 (width), pg_1 (first page), f_png (convert to png)
-        // We replace '/upload/' with '/upload/w_800,pg_1,f_png,q_auto/'
-        certificateImageUrl = upload.certificate_pdf_path.replace(
-            '/upload/',
-            '/upload/w_800,pg_1,f_png,q_auto/'
-        );
-        
-        // IMPORTANT: If the URL ends in .pdf, change it to .png for the image tag
-        if (certificateImageUrl.endsWith('.pdf')) {
-            certificateImageUrl = certificateImageUrl.replace('.pdf', '.png');
-        }
-    } catch (e) {
-        console.error('Transformation error:', e);
-    }
-}
+        // 5. Send Response
         res.json({
             certificateNumber: upload.certificate_number,
-            certificatePath: upload.certificate_pdf_path,
-            certificateImageUrl: certificateImageUrl,
+            certificatePath: upload.certificate_pdf_path, // For downloading the original PDF
+            certificateImageUrl: certificateImageUrl,    // For showing in <img> tag (mobile friendly)
             userName: upload.user_name,
             userEmail: upload.user_email,
             verifiedByName: upload.verified_by_name,
