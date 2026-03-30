@@ -720,17 +720,13 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 router.get('/files/verify/:identifier', async (req, res) => {
     try {
         const { identifier } = req.params;
-        
         let uploadQuery;
         let queryParams;
         
-        // 1. Determine if searching by 12-digit Cert Number or ID
+        // 1. Identify if it's a Cert Number (12 digits) or an ID
         if (/^\d{12}$/.test(identifier)) {
             uploadQuery = `
-                SELECT u.*, 
-                       usr.name as user_name, 
-                       usr.email as user_email,
-                       verifier.name as verified_by_name
+                SELECT u.*, usr.name as user_name, usr.email as user_email, verifier.name as verified_by_name
                 FROM uploads u
                 JOIN users usr ON u.user_id = usr.id
                 LEFT JOIN users verifier ON u.verified_by = verifier.id
@@ -739,10 +735,7 @@ router.get('/files/verify/:identifier', async (req, res) => {
             queryParams = [identifier];
         } else {
             uploadQuery = `
-                SELECT u.*, 
-                       usr.name as user_name, 
-                       usr.email as user_email,
-                       verifier.name as verified_by_name
+                SELECT u.*, usr.name as user_name, usr.email as user_email, verifier.name as verified_by_name
                 FROM uploads u
                 JOIN users usr ON u.user_id = usr.id
                 LEFT JOIN users verifier ON u.verified_by = verifier.id
@@ -759,20 +752,22 @@ router.get('/files/verify/:identifier', async (req, res) => {
         
         const upload = uploadResult.rows[0];
 
-        // Debugging (Now safely placed after 'upload' is defined)
-        console.log('=== VERIFICATION DEBUG ===');
-        console.log('Cert Path:', upload.certificate_pdf_path);
-        console.log('Cert Number:', upload.certificate_number);
-        console.log('==========================');
-        
-        // 2. Parse Signers
+        // 2. ✅ GENERATE IMAGE URL (Cloudinary Magic)
+        let certificateImageUrl = null;
+        if (upload.certificate_pdf_path && upload.certificate_pdf_path.includes('cloudinary.com')) {
+            // Force Cloudinary to render page 1 as a PNG image
+            certificateImageUrl = upload.certificate_pdf_path
+                .replace('/upload/', '/upload/w_1200,f_png,pg_1,q_auto/')
+                .replace('.pdf', '.png');
+        }
+
+        // 3. Process Signers
         let signers = [];
         if (upload.additional_signatures_data) {
             try {
                 const sigData = typeof upload.additional_signatures_data === 'string' 
                     ? JSON.parse(upload.additional_signatures_data) 
                     : upload.additional_signatures_data;
-                
                 if (Array.isArray(sigData)) {
                     signers = sigData.map(sig => ({
                         id: sig.id || sig.signerId,
@@ -783,68 +778,31 @@ router.get('/files/verify/:identifier', async (req, res) => {
                         signatureDate: sig.signatureDate || sig.date || upload.certificate_date
                     }));
                 }
-            } catch (e) {
-                console.warn('Failed to parse signers:', e.message);
-            }
+            } catch (e) { console.warn('Signer parse error'); }
         }
-        
-        // 3. Build documents array
+
+        // 4. Process Documents
         let documents = [];
-        const processPaths = (paths) => {
-            const parsed = typeof paths === 'string' ? JSON.parse(paths) : paths;
-            return Array.isArray(parsed) ? parsed : [parsed];
-        };
-
-        try {
-            if (upload.reuploaded_file_paths) {
-                const paths = processPaths(upload.reuploaded_file_paths);
-                documents = paths.map((path, index) => ({
-                    url: path.path || path,
-                    originalName: `Document ${index + 1}`,
-                    fileType: 'image/jpeg',
-                    signers: signers
-                }));
-            } else if (upload.file_paths) {
-                const paths = processPaths(upload.file_paths);
-                documents = paths.map((path, index) => ({
-                    url: path.path || path,
-                    originalName: upload.original_filename || `Document ${index + 1}`,
-                    fileType: upload.file_type,
-                    signers: signers
-                }));
-            } else if (upload.file_path) {
-                documents = [{
-                    url: upload.file_path,
-                    originalName: upload.original_filename,
-                    fileType: upload.file_type,
-                    signers: signers
-                }];
-            }
-        } catch (e) {
-            console.warn('Document parsing error:', e.message);
-        }
-
-        // 4. ✅ CLOUDINARY PDF TO IMAGE TRANSFORMATION
-        // This creates a mobile-friendly preview image of the PDF
-        let certificateImageUrl = null;
-        if (upload.certificate_pdf_path && upload.certificate_pdf_path.includes('cloudinary.com')) {
+        const rawPaths = upload.reuploaded_file_paths || upload.file_paths || upload.file_path;
+        if (rawPaths) {
             try {
-                // pg_1: First page only
-                // f_png: Force output to PNG
-                // w_1000: Good resolution for mobile zoom
-                certificateImageUrl = upload.certificate_pdf_path
-                    .replace('/upload/', '/upload/w_1000,pg_1,f_png,q_auto/')
-                    .replace('.pdf', '.png'); 
-            } catch (e) {
-                console.error('Image Transformation error:', e);
-            }
+                const paths = (typeof rawPaths === 'string' && rawPaths.startsWith('[')) 
+                    ? JSON.parse(rawPaths) : (Array.isArray(rawPaths) ? rawPaths : [rawPaths]);
+                
+                documents = paths.map((p, i) => ({
+                    url: p.path || p,
+                    originalName: upload.original_filename || `Document ${i + 1}`,
+                    fileType: upload.file_type || 'image/jpeg',
+                    signers: signers
+                }));
+            } catch (e) { console.warn('Doc parse error'); }
         }
 
-        // 5. Send Response
+        // 5. Send optimized response
         res.json({
             certificateNumber: upload.certificate_number,
-            certificatePath: upload.certificate_pdf_path, // For downloading the original PDF
-            certificateImageUrl: certificateImageUrl,    // For showing in <img> tag (mobile friendly)
+            certificatePath: upload.certificate_pdf_path,
+            certificateImageUrl: certificateImageUrl, // PNG version for display
             userName: upload.user_name,
             userEmail: upload.user_email,
             verifiedByName: upload.verified_by_name,
@@ -854,11 +812,8 @@ router.get('/files/verify/:identifier', async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Verification fetch error:', error);
-        res.status(500).json({ 
-            message: 'Internal server error', 
-            error: error.message 
-        });
+        console.error('Error:', error);
+        res.status(500).json({ message: 'Internal server error' });
     }
 });
 
