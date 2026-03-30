@@ -612,6 +612,13 @@ router.get('/verify/:certificateNumber', async (req, res) => {
         }
         
         const upload = uploadResult.rows[0];
+
+        let certificateImageUrl = null;
+if (upload.certificate_pdf_path && upload.certificate_pdf_path.includes('cloudinary.com')) {
+    certificateImageUrl = upload.certificate_pdf_path
+        .replace('/upload/', '/upload/w_1200,f_png,pg_1,q_auto/')
+        .replace('.pdf', '.png');
+}
         
         // Parse additional_signatures_data JSONB to get signers
         let signers = [];
