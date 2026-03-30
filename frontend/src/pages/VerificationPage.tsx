@@ -221,68 +221,44 @@ const VerificationPage = () => {
         <div className="container mx-auto">
           <div className="w-full space-y-6">
             {/* E-Apostille Certificate Section */}
-            {hasCertificate && (
+{hasCertificate && (
   <div className="bg-white shadow-sm overflow-hidden">
-    <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-      <h2 className="text-xl font-bold text-gray-800">
-        অ্যাপোস্টিল
-      </h2>
+    <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+      <h2 className="text-xl font-bold text-gray-800">ই-অ্যপোস্টিল সার্টিফিকেট</h2>
     </div>
-    <div className="p-4">
-      {/* Certificate Image - displays like a document, no iframe */}
-      <div className="flex justify-center">
-        <div className="bg-white mx-4 shadow-md rounded-md overflow-hidden">
-          {verificationData?.certificateImageUrl ? (
-            <img
-              src={verificationData.certificateImageUrl}
-              alt="E-Apostille Certificate"
-              className="w-full max-w-[405px] h-auto object-contain"
-              loading="lazy"
-              onError={(e) => {
-                console.error('Certificate image failed to load:', verificationData.certificateImageUrl);
-                const target = e.target as HTMLImageElement;
-                target.style.display = 'none';
-                // Show fallback message
-                const parent = target.parentElement;
-                if (parent) {
-                  parent.innerHTML = `
-                    <div class="w-[405px] h-[571px] bg-gray-100 flex items-center justify-center flex-col p-6 text-center">
-                      <p class="text-gray-600 mb-4">প্রমাণপত্র লোড করা যাচ্ছে না</p>
-                      <button
-                        onclick="window.open('${verificationData.certificatePath}', '_blank')"
-                        class="bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700"
-                      >
-                        <svg class="inline w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                        </svg>
-                        ডাউনলোড করুন
-                      </button>
-                    </div>
-                  `;
-                }
-              }}
-              onLoad={() => {
-                console.log('Certificate image loaded successfully');
-              }}
-            />
-          ) : (
-            // Fallback for PDF-only URLs
-            <div className="w-[405px] h-[571px] bg-gray-100 flex items-center justify-center flex-col p-6 text-center">
-              <p className="text-gray-600 mb-4">প্রমাণপত্র দেখতে ডাউনলোড করুন</p>
-              <button
-                onClick={handleDownloadCertificate}
-                className="bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700"
-              >
-                <FontAwesomeIcon icon={faDownload} className="mr-2" />
-                ডাউনলোড করুন
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
+    
+    <div className="p-4 flex flex-col items-center">
+      {/* Show Image Version of Certificate */}
+      {verificationData.certificateImageUrl ? (
+        <img 
+          src={verificationData.certificateImageUrl} 
+          alt="Certificate Preview" 
+          className="w-full max-w-4xl h-auto border shadow-sm mb-4"
+          onError={(e) => {
+            // Fallback if image fails: try showing PDF in iframe
+            (e.target as HTMLImageElement).style.display = 'none';
+          }}
+        />
+      ) : (
+        /* Fallback to iframe if no Image URL is generated */
+        <iframe 
+          src={`https://docs.google.com/viewer?url=${encodeURIComponent(verificationData.certificatePath)}&embedded=true`}
+          className="w-full h-[600px] border-none mb-4"
+        />
+      )}
+
+      {/* Download Button - Always links to the original PDF */}
+      <button 
+        onClick={handleDownloadCertificate} 
+        className="w-72 bg-slate-900 text-white py-3 font-bold rounded-lg hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+      >
+        <FontAwesomeIcon icon={faDownload} /> 
+        অ্যাপোস্টিল ডাউনলোড করুন (PDF)
+      </button>
     </div>
   </div>
 )}
+
 
 {/* Attested Documents Section */}
             {hasDocuments && (
@@ -302,7 +278,7 @@ const VerificationPage = () => {
                     <div className="p-0 bg-gray-50">
                       <div className="bg-white overflow-hidden">
                         {doc.url?.toLowerCase().endsWith(".pdf") ? (
-                          <iframe
+                          <embed
                             src={`https://docs.google.com/viewer?url=${encodeURIComponent(
                               doc.url
                             )}&embedded=true`}

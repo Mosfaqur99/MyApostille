@@ -854,41 +854,24 @@ console.log('=========================');
 
 // ✅ CLOUDINARY PDF TO IMAGE TRANSFORMATION - FIXED
 let certificateImageUrl = null;
-console.log('=== CERTIFICATE DEBUG ===');
-console.log('PDF Path exists:', !!upload.certificate_pdf_path);
-console.log('PDF Path value:', upload.certificate_pdf_path);
 
 if (upload.certificate_pdf_path && upload.certificate_pdf_path.includes('cloudinary.com')) {
     try {
-        const pdfUrl = upload.certificate_pdf_path;
-        console.log('Original PDF URL:', pdfUrl);
+        // Cloudinary transformation: w_800 (width), pg_1 (first page), f_png (convert to png)
+        // We replace '/upload/' with '/upload/w_800,pg_1,f_png,q_auto/'
+        certificateImageUrl = upload.certificate_pdf_path.replace(
+            '/upload/',
+            '/upload/w_800,pg_1,f_png,q_auto/'
+        );
         
-        // Cloudinary PDF to Image Transformation
-        // Format: https://res.cloudinary.com/{cloud}/image/upload/{transformations}/{public_id}.png
-        // Extract the cloud name and public_id from the URL
-        const urlParts = pdfUrl.split('/upload/');
-        if (urlParts.length >= 2) {
-            const baseUrl = urlParts[0]; // https://res.cloudinary.com/{cloud}/image
-            const restPath = urlParts[1]; // apostille/certificates/certificate-123456.pdf
-            
-            // Remove .pdf extension and add transformations
-            const publicId = restPath.replace('.pdf', '');
-            
-            // Add transformation parameters for PDF page 1 to PNG
-            // w_800 = width 800px, pg_1 = page 1, f_png = format PNG, q_auto = quality auto
-            certificateImageUrl = `${baseUrl}/upload/w_800,pg_1,f_png,q_auto/${publicId}.png`;
-            
-            console.log('✅ Transformed to Image URL:', certificateImageUrl);
+        // IMPORTANT: If the URL ends in .pdf, change it to .png for the image tag
+        if (certificateImageUrl.endsWith('.pdf')) {
+            certificateImageUrl = certificateImageUrl.replace('.pdf', '.png');
         }
-    } catch (err) {
-        console.error('❌ Transformation error:', err);
-        certificateImageUrl = null;
+    } catch (e) {
+        console.error('Transformation error:', e);
     }
-} else {
-    console.log('⚠️ No Cloudinary PDF found, skipping transformation');
 }
-
-console.log('Final certificateImageUrl:', certificateImageUrl);
         res.json({
             certificateNumber: upload.certificate_number,
             certificatePath: upload.certificate_pdf_path,
