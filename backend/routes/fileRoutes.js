@@ -718,6 +718,7 @@ router.get('/verify/:certificateNumber', async (req, res) => {
 // GET /verify/:certificateNumber - PUBLIC ROUTE
 // GET /files/verify/:certificateNumber - PUBLIC ROUTE
 router.get('/files/verify/:identifier', async (req, res) => {
+    console.log('=== VERIFY ROUTE HIT ===', req.params.identifier);
     try {
         const { identifier } = req.params;
         let uploadQuery;
