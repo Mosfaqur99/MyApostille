@@ -229,24 +229,44 @@ const VerificationPage = () => {
       </h2>
     </div>
     <div className="p-4">
-      {/* Certificate Image - No iframe, just img tag */}
+      {/* Certificate Image - displays like a document, no iframe */}
       <div className="flex justify-center">
-        <div className="bg-white mx-4 shadow-md rounded-md overflow-hidden border border-gray-200">
+        <div className="bg-white mx-4 shadow-md rounded-md overflow-hidden">
           {verificationData?.certificateImageUrl ? (
             <img
               src={verificationData.certificateImageUrl}
               alt="E-Apostille Certificate"
-              className="w-full max-w-[405px] h-auto object-contain block"
-              loading="eager"
+              className="w-full max-w-[405px] h-auto object-contain"
+              loading="lazy"
               onError={(e) => {
-                console.error('Certificate image failed to load');
-                // Hide the broken image and show fallback
+                console.error('Certificate image failed to load:', verificationData.certificateImageUrl);
                 const target = e.target as HTMLImageElement;
                 target.style.display = 'none';
+                // Show fallback message
+                const parent = target.parentElement;
+                if (parent) {
+                  parent.innerHTML = `
+                    <div class="w-[405px] h-[571px] bg-gray-100 flex items-center justify-center flex-col p-6 text-center">
+                      <p class="text-gray-600 mb-4">প্রমাণপত্র লোড করা যাচ্ছে না</p>
+                      <button
+                        onclick="window.open('${verificationData.certificatePath}', '_blank')"
+                        class="bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700"
+                      >
+                        <svg class="inline w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                        </svg>
+                        ডাউনলোড করুন
+                      </button>
+                    </div>
+                  `;
+                }
+              }}
+              onLoad={() => {
+                console.log('Certificate image loaded successfully');
               }}
             />
           ) : (
-            // Fallback when no image URL available
+            // Fallback for PDF-only URLs
             <div className="w-[405px] h-[571px] bg-gray-100 flex items-center justify-center flex-col p-6 text-center">
               <p className="text-gray-600 mb-4">প্রমাণপত্র দেখতে ডাউনলোড করুন</p>
               <button
@@ -260,22 +280,11 @@ const VerificationPage = () => {
           )}
         </div>
       </div>
-
-      {/* Download button */}
-      <div className="max-w-2xl flex justify-end mt-4">
-        <button
-          onClick={handleDownloadCertificate}
-          className="w-72 bg-slate-900 text-white py-2 font-bold text-sm rounded-lg hover:bg-green-700 transition-all duration-300 shadow flex items-center justify-center gap-2"
-        >
-          <FontAwesomeIcon icon={faDownload} />
-          অ্যাপোস্টিল ডাউনলোড করুন
-        </button>
-      </div>
     </div>
   </div>
 )}
 
-            {/* Attested Documents Section */}
+{/* Attested Documents Section */}
             {hasDocuments && (
               <div className="w-full space-y-6">
                 <div className="p-3">

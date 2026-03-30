@@ -850,36 +850,45 @@ console.log('=========================');
         }
 
         // ✅ CLOUDINARY MAGIC: Convert PDF to image on-the-fly via URL transformation
-      // ✅ CLOUDINARY MAGIC: Convert PDF to image on-the-fly via URL transformation
-// ✅ CLOUDINARY MAGIC: Convert PDF to image on-the-fly via URL transformation
-        // ✅ CLOUDINARY PDF TO IMAGE TRANSFORMATION
-        let certificateImageUrl = null;
+     // In the GET /files/verify/:identifier route, replace the transformation section with:
+
+// ✅ CLOUDINARY PDF TO IMAGE TRANSFORMATION - FIXED
+let certificateImageUrl = null;
+console.log('=== CERTIFICATE DEBUG ===');
+console.log('PDF Path exists:', !!upload.certificate_pdf_path);
+console.log('PDF Path value:', upload.certificate_pdf_path);
+
+if (upload.certificate_pdf_path && upload.certificate_pdf_path.includes('cloudinary.com')) {
+    try {
+        const pdfUrl = upload.certificate_pdf_path;
+        console.log('Original PDF URL:', pdfUrl);
         
-        console.log('=== CERTIFICATE DEBUG ===');
-        console.log('PDF Path exists:', !!upload.certificate_pdf_path);
-        console.log('PDF Path value:', upload.certificate_pdf_path);
-        
-        if (upload.certificate_pdf_path && upload.certificate_pdf_path.includes('cloudinary.com')) {
-            try {
-                const pdfUrl = upload.certificate_pdf_path;
-                
-                // Simple and reliable transformation
-                // Change: /upload/ to /upload/w_800,pg_1,f_png,q_auto/
-                // Change: .pdf to .png
-                certificateImageUrl = pdfUrl
-                    .replace('/upload/', '/upload/w_800,pg_1,f_png,q_auto/')
-                    .replace('.pdf', '.png');
-                
-                console.log('✅ Transformed to Image URL:', certificateImageUrl);
-            } catch (err) {
-                console.error('❌ Transformation error:', err);
-                certificateImageUrl = null;
-            }
-        } else {
-            console.log('⚠️ No Cloudinary PDF found, skipping transformation');
+        // Cloudinary PDF to Image Transformation
+        // Format: https://res.cloudinary.com/{cloud}/image/upload/{transformations}/{public_id}.png
+        // Extract the cloud name and public_id from the URL
+        const urlParts = pdfUrl.split('/upload/');
+        if (urlParts.length >= 2) {
+            const baseUrl = urlParts[0]; // https://res.cloudinary.com/{cloud}/image
+            const restPath = urlParts[1]; // apostille/certificates/certificate-123456.pdf
+            
+            // Remove .pdf extension and add transformations
+            const publicId = restPath.replace('.pdf', '');
+            
+            // Add transformation parameters for PDF page 1 to PNG
+            // w_800 = width 800px, pg_1 = page 1, f_png = format PNG, q_auto = quality auto
+            certificateImageUrl = `${baseUrl}/upload/w_800,pg_1,f_png,q_auto/${publicId}.png`;
+            
+            console.log('✅ Transformed to Image URL:', certificateImageUrl);
         }
-        
-        console.log('Final certificateImageUrl:', certificateImageUrl);
+    } catch (err) {
+        console.error('❌ Transformation error:', err);
+        certificateImageUrl = null;
+    }
+} else {
+    console.log('⚠️ No Cloudinary PDF found, skipping transformation');
+}
+
+console.log('Final certificateImageUrl:', certificateImageUrl);
         res.json({
             certificateNumber: upload.certificate_number,
             certificatePath: upload.certificate_pdf_path,
@@ -964,7 +973,7 @@ const certUploadResult = await new Promise((resolve, reject) => {
     {
       folder: 'apostille/certificates',
       public_id: `certificate-${certNumber}`,
-      resource_type: 'image',  // ✅ CORRECT - allows PDF transformations
+      resource_type: 'raw',  // ✅ CORRECT - allows PDF transformations
       format: 'pdf'
     },
     (error, result) => {
@@ -1388,6 +1397,39 @@ router.patch('/edit/:id', verifyToken, uploadOriginal.array('files'), async (req
 });
 
 
-
+// Add this debug endpoint to test the transformation
+router.get('/test-certificate-image/:certificateNumber', async (req, res) => {
+    try {
+        const { certificateNumber } = req.params;
+        const result = await pool.query(
+            'SELECT certificate_pdf_path FROM uploads WHERE certificate_number = $1',
+            [certificateNumber]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Certificate not found' });
+        }
+        
+        const pdfUrl = result.rows[0].certificate_pdf_path;
+        let imageUrl = null;
+        
+        if (pdfUrl && pdfUrl.includes('cloudinary.com')) {
+            const urlParts = pdfUrl.split('/upload/');
+            if (urlParts.length >= 2) {
+                const baseUrl = urlParts[0];
+                const publicId = urlParts[1].replace('.pdf', '');
+                imageUrl = `${baseUrl}/upload/w_800,pg_1,f_png,q_auto/${publicId}.png`;
+            }
+        }
+        
+        res.json({
+            pdfUrl,
+            imageUrl,
+            transformation: imageUrl ? 'success' : 'failed'
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 module.exports = router;
