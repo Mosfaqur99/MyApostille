@@ -871,7 +871,8 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.a
       certificateDate, 
       authorityName,
       certificateNumber: certNumber,
-      baseUrl: `${req.protocol}://${req.get('host')}`
+      baseUrl: 'https://mygovapostille.com',
+      verificationUrl: 'https://mygovapostille.com/verify'
     };
 
     const certResult = await generateEApostilleCertificate(certificateData);
