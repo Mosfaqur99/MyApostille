@@ -393,7 +393,8 @@ const baseUrl = certificateData.baseUrl || 'https://mygovapostille.com';
 
 // Remove trailing slash if present
 const cleanBaseUrl = baseUrl.replace(/\/$/, '');
-const qrBuffer = await generateQRCode(`${cleanBaseUrl}/verify/${certNo}`);
+const qrUrl = certificateData.verificationUrl || `${cleanBaseUrl}/verify/${certNo}`;
+const qrBuffer = await generateQRCode(qrUrl);
 if (qrBuffer) {
   const qrImage = await doc.embedPng(qrBuffer);
   page.drawImage(qrImage, { 
