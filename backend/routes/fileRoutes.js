@@ -864,16 +864,16 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.a
 
     // Step 4: Generate certificate PDF
     const certificateData = {
-      documentIssuer, 
-      actingCapacity: documentTitle, 
-      sealLocation: documentLocation,
-      certificateLocation, 
-      certificateDate, 
-      authorityName,
-      certificateNumber: certNumber,
-      baseUrl: 'https://mygovapostille.com',
-      verificationUrl: 'https://mygovapostille.com/verify'
-    };
+  documentIssuer, 
+  actingCapacity: documentTitle, 
+  sealLocation: documentLocation,
+  certificateLocation, 
+  certificateDate, 
+  authorityName,
+  certificateNumber: certNumber,
+  baseUrl: 'https://mygovapostille.com',  // ✅ No trailing space
+  verificationUrl: `https://mygovapostille.com/verify/${certNumber}`  // ✅ Include cert number!
+};
 
     const certResult = await generateEApostilleCertificate(certificateData);
     if (!certResult || !certResult.pdfBytes) {
