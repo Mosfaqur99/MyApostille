@@ -914,21 +914,26 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.a
     }
 
     // FIXED MERGE LOGIC: Safely parse existing reuploaded files
-    let existingUrls = [];
-    
-    if (upload.reuploaded_file_paths) {
-      try {
-        // Try to parse as JSON first
-        const parsed = JSON.parse(upload.reuploaded_file_paths);
-        // If it's an array, use it. If it's a string, wrap it in array
-        existingUrls = Array.isArray(parsed) ? parsed : [parsed];
-      } catch (e) {
-        // If JSON.parse fails, treat it as a plain string URL
-        existingUrls = [upload.reuploaded_file_paths];
-      }
+    // FIXED MERGE LOGIC: Safely parse existing reuploaded files
+let existingUrls = [];
+
+if (upload.reuploaded_file_paths) {
+  if (Array.isArray(upload.reuploaded_file_paths)) {
+    // Already parsed by PostgreSQL JSONB
+    existingUrls = upload.reuploaded_file_paths;
+  } else if (typeof upload.reuploaded_file_paths === 'string') {
+    try {
+      const parsed = JSON.parse(upload.reuploaded_file_paths);
+      existingUrls = Array.isArray(parsed) ? parsed : [parsed];
+    } catch (e) {
+      existingUrls = [upload.reuploaded_file_paths];
     }
-    
-    const allReuploadedUrls = [...existingUrls, ...reuploadedUrls];
+  } else {
+    existingUrls = [upload.reuploaded_file_paths];
+  }
+}
+
+const allReuploadedUrls = [...existingUrls, ...reuploadedUrls];
 
     // Step 6: Parse additional signers
     let signaturesData = [];
@@ -1065,23 +1070,26 @@ router.post('/verify/:id/add-files', verifyToken, authorizeRole('admin'), upload
     }
 
     // FIX: Parse existing reuploaded files safely
-    let existingUrls = [];
-    
-    if (upload.reuploaded_file_paths) {
-      try {
-        // Try to parse as JSON first
-        const parsed = JSON.parse(upload.reuploaded_file_paths);
-        // If it's an array, use it. If it's a string, wrap it in array
-        existingUrls = Array.isArray(parsed) ? parsed : [parsed];
-      } catch (e) {
-        // If JSON.parse fails, treat it as a plain string URL
-        existingUrls = [upload.reuploaded_file_paths];
-      }
+let existingUrls = [];
+
+if (upload.reuploaded_file_paths) {
+  if (Array.isArray(upload.reuploaded_file_paths)) {
+    // Already parsed by PostgreSQL JSONB
+    existingUrls = upload.reuploaded_file_paths;
+  } else if (typeof upload.reuploaded_file_paths === 'string') {
+    try {
+      const parsed = JSON.parse(upload.reuploaded_file_paths);
+      existingUrls = Array.isArray(parsed) ? parsed : [parsed];
+    } catch (e) {
+      existingUrls = [upload.reuploaded_file_paths];
     }
+  } else {
+    existingUrls = [upload.reuploaded_file_paths];
+  }
+}
 
-    // Merge with existing files
-    const mergedUrls = [...existingUrls, ...newReuploadedUrls];
-
+// Merge with existing files
+const mergedUrls = [...existingUrls, ...newReuploadedUrls];
     // Update database
     const updateQuery = `
       UPDATE uploads 
