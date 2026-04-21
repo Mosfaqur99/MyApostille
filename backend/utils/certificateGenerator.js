@@ -383,7 +383,7 @@ async function generateEApostilleCertificate(certificateData) {
     }
 
     // 8. VERIFICATION BLOCK - Position at bottom
-    const qrSize = 85;
+    const qrSize = 95;
     const qrX = width - margin - qrSize - 25;
     const bottomSectionY = margin + 80;
 
@@ -418,49 +418,49 @@ if (qrBuffer) {
     page.drawText(`Digitally signed by ${authName}`, { 
       x: infoX, 
       y: infoY, 
-      size: 10, 
+      size: 8, 
       font: timesBold,
       color: textColor
     });
     page.drawText(`Date: ${dateStr}`, { 
       x: infoX, 
       y: infoY - lineSpacing, 
-      size: 10, 
+      size: 8, 
       font: timesBold,
       color: textColor
     });
     page.drawText(`${timeStr} +06:00`, { 
       x: infoX, 
       y: infoY - (lineSpacing * 2), 
-      size: 10, 
+      size: 8, 
       font: timesBold,
       color: textColor
     });
     page.drawText('Reason: Document', { 
       x: infoX, 
       y: infoY - (lineSpacing * 3), 
-      size: 10, 
+      size: 8, 
       font: timesBold,
       color: textColor
     });
     page.drawText('Signing', { 
       x: infoX, 
       y: infoY - (lineSpacing * 4), 
-      size: 10, 
+      size: 8, 
       font: timesBold,
       color: textColor
     });
     page.drawText('Location: Ministry of', { 
       x: infoX, 
       y: infoY - (lineSpacing * 5), 
-      size: 10, 
+      size: 8, 
       font: timesBold,
       color: textColor
     });
     page.drawText('foreign Affairs, Dhaka, BD', { 
       x: infoX, 
       y: infoY - (lineSpacing * 6), 
-      size: 10, 
+      size: 8, 
       font: timesBold,
       color: textColor
     });
