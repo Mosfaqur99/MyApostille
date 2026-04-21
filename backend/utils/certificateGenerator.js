@@ -261,8 +261,8 @@ async function generateEApostilleCertificate(certificateData) {
     y -= lineHeight;
 
     // Get authority config based on selected name
-    const authorityKey = safeText(certificateData.authorityName || 'MD. ASIF KHAN PRANTO').toUpperCase();
-    const authorityConfig = AUTHORITY_CONFIG[authorityKey] || AUTHORITY_CONFIG['MD. ASIF KHAN PRANTO'];
+    const authorityKey = safeText(certificateData.authorityName || 'MD. MEHEFUZUL ISLAM').toUpperCase();
+    const authorityConfig = AUTHORITY_CONFIG[authorityKey] || AUTHORITY_CONFIG['MD. MEHEFUZUL ISLAM'];
     const authName = authorityConfig.name;
     const authDesignation = authorityConfig.designation;
 

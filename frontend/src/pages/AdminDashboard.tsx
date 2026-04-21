@@ -1134,11 +1134,11 @@ const AdminDashboard = () => {
                       className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                     >
                       <option value="MD. MEHEFUZUL ISLAM">MD. MEHEFUZUL ISLAM (Assistant Secretary)</option>
-                      <option value="AKLIMA KHANOM">AKLIMA KHANOM (Senior Assistant Secretary)</option>
+                      <option value="Aklima Khanom">Aklima Khanom (Senior Assistant Secretary)</option>
                     </select>
                     <p className="text-xs text-gray-500 mt-1">
                       Designation will appear as: 
-                      {certificateData.authorityName === 'AKLIMA KHANOM' 
+                      {certificateData.authorityName === 'Aklima Khanom' 
                         ? 'Senior Assistant Secretary, Ministry of Foreign Affairs' 
                         : 'Assistant Secretary, Ministry of Foreign Affairs'}
                     </p>
