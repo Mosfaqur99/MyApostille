@@ -60,13 +60,13 @@ async function loadImage(doc, imagePath) {
 
 // Authority configuration with names and designations
 const AUTHORITY_CONFIG = {
-  'MD. ASIF KHAN PRANTO': {
-    name: 'MD. ASIF KHAN PRANTO',
+  'MD. MEHEFUZUL ISLAM': {
+    name: 'MD. MEHEFUZUL ISLAM',
     designation: 'Assistant Secretary, Ministry of Foreign Affairs',
-    signatureFile: 'signature_asif.png'
+    signatureFile: 'signature_mehefuzul.png'
   },
-  'AKLIMA KHANOM': {
-    name: 'AKLIMA KHANOM',
+  'Aklima Khanom': {
+    name: 'Aklima Khanom',
     designation: 'Senior Assistant Secretary, Ministry of Foreign Affairs',
     signatureFile: 'signature_aklima.png'
   }
