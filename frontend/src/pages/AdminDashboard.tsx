@@ -42,7 +42,7 @@ const AdminDashboard = () => {
     documentLocation: 'Dhaka',
     certificateLocation: 'Dhaka',
     certificateDate: new Date().toISOString().split('T')[0],
-    authorityName: 'MD. ASIF KHAN PRANTO'
+    authorityName: 'MD. MEHEFUZUL ISLAM'
   });
   
   const [isVerifying, setIsVerifying] = useState(false);
@@ -389,7 +389,7 @@ const AdminDashboard = () => {
       documentLocation: 'Dhaka',
       certificateLocation: 'Dhaka',
       certificateDate: new Date().toISOString().split('T')[0],
-      authorityName: 'MD. ASIF KHAN PRANTO'
+      authorityName: 'MD. MEHEFUZUL ISLAM'
     });
   };
 
@@ -1133,7 +1133,7 @@ const AdminDashboard = () => {
                       onChange={(e) => setCertificateData({...certificateData, authorityName: e.target.value})}
                       className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                     >
-                      <option value="MD. ASIF KHAN PRANTO">MD. ASIF KHAN PRANTO (Assistant Secretary)</option>
+                      <option value="MD. MEHEFUZUL ISLAM">MD. MEHEFUZUL ISLAM (Assistant Secretary)</option>
                       <option value="AKLIMA KHANOM">AKLIMA KHANOM (Senior Assistant Secretary)</option>
                     </select>
                     <p className="text-xs text-gray-500 mt-1">
