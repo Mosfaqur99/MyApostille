@@ -10,7 +10,7 @@ const { createStorage } = require('../config/cloudinary');
 
 
 // Import generators and processors
-const { generateEApostilleCertificate } = require('../utils/certificateGenerator');
+//const { generateEApostilleCertificate } = require('../utils/certificateGenerator');
 const { processDocumentWithSignatures, processMultipleDocuments } = require('../utils/documentProcessor');
 
 // Helper: Generate certificate number

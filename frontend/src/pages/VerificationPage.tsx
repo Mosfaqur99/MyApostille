@@ -250,10 +250,10 @@ const VerificationPage = () => {
       <div className="w-full px-2 pb-4">
         <button 
           onClick={handleDownloadCertificate} 
-          className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-transform"
+          className="w-full bg-black text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-transform"
         >
           <FontAwesomeIcon icon={faDownload} /> 
-          ডাউনলোড করুন (PDF)
+          অ্যাপোস্টিল  ডাউনলোড করুন
         </button>
       </div>
     </div>
@@ -305,66 +305,80 @@ const VerificationPage = () => {
 </div>
 
                     {/* Signature Blocks */}
-                    {doc.signers && doc.signers.length > 0 && (
-                      <div className="px-4 py-8 bg-white border-t border-gray-200">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-8 gap-x-4 justify-items-center">
-                          {doc.signers.map((signer, signerIndex) => (
-                            <div
-                              key={signerIndex}
-                              className="flex flex-col items-center text-center w-full max-w-[320px]"
-                            >
-                              {/* Attested Image */}
-                              <div className="mb-2">
-                                <img
-                                  src={getAttestedImageUrl()}
-                                  alt="Attested"
-                                  className="h-10 w-auto object-contain"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = "none";
-                                    if (target.parentElement) {
-                                      target.parentElement.innerHTML =
-                                        '<span style="color: #4c1d95; font-family: serif; font-size: 1.5rem; font-style: italic; font-weight: 700;">Attested</span>';
-                                    }
-                                  }}
-                                />
-                              </div>
+{doc.signers && doc.signers.length > 0 && (
+  <div className="px-4 py-8 bg-white border-t border-gray-200">
+    <div 
+      className={`
+        grid gap-y-8 gap-x-4 justify-items-center
+        ${doc.signers.length === 1 || doc.signers.length === 3
+          ? 'grid-cols-1 place-items-center' 
+          : 'grid-cols-1 sm:grid-cols-2'
+        }
+      `}
+    >
+      {doc.signers.map((signer, signerIndex) => (
+        <div
+          key={signerIndex}
+          className={`
+            flex flex-col items-center text-center w-full
+            ${doc.signers.length === 1 || doc.signers.length === 3
+              ? 'max-w-[480px]' 
+              : 'max-w-[320px]'
+            }
+          `}
+        >
+          {/* Attested Image */}
+          <div className="mb-2">
+            <img
+              src={getAttestedImageUrl()}
+              alt="Attested"
+              className="h-12 w-auto object-contain"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.style.display = "none";
+                if (target.parentElement) {
+                  target.parentElement.innerHTML =
+                    '<span style="color: #4c1d95; font-family: serif; font-size: 1.75rem; font-style: italic; font-weight: 700;">Attested</span>';
+                }
+              }}
+            />
+          </div>
 
-                              {/* Signature Image */}
-                              <div className="h-16 flex items-center justify-center mb-2">
-                                {signer.signature_image ? (
-                                  <img
-                                    src={getSignatureImageUrl(
-                                      signer.signature_image
-                                    )}
-                                    alt={`${signer.name} signature`}
-                                    className="max-h-16 w-auto object-contain mix-blend-multiply"
-                                  />
-                                ) : (
-                                  <div className="h-16" />
-                                )}
-                              </div>
+          {/* Signature Image */}
+          <div className="h-24 flex items-center justify-center mb-2">
+            {signer.signature_image ? (
+              <img
+                src={getSignatureImageUrl(
+                  signer.signature_image
+                )}
+                alt={`${signer.name} signature`}
+                className="max-h-24 w-auto object-contain mix-blend-multiply"
+              />
+            ) : (
+              <div className="h-24" />
+            )}
+          </div>
 
-                              {/* Date */}
-                              <div className="text-[#4c1d95] text-lg font-semibold mb-1">
-                                {formatDate(signer.signatureDate)}
-                              </div>
+          {/* Date */}
+          <div className="text-[#4c1d95] text-lg font-semibold mb-1">
+            {formatDate(signer.signatureDate)}
+          </div>
 
-                              {/* Name */}
-                              <div className="font-bold text-[#4c1d95] text-xl leading-tight mb-1">
-                                {signer.name}
-                              </div>
+          {/* Name */}
+          <div className="font-bold text-[#4c1d95] text-xl leading-tight mb-1">
+            {signer.name}
+          </div>
 
-                              {/* Designation & Org */}
-                              <div className="text-[#4c1d95] text-lg leading-snug">
-                                <p>{signer.designation}</p>
-                                <p>{signer.organization}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+          {/* Designation & Org */}
+          <div className="text-[#4c1d95] text-lg leading-snug">
+            <p>{signer.designation}</p>
+            <p>{signer.organization}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
                   </div>
                 ))}
               </div>
@@ -377,29 +391,7 @@ const VerificationPage = () => {
               </div>
             )}
 
-            {/* Back Button */}
-            {/* <div className="px-4 pb-6">
-              <button
-                onClick={() => navigate(-1)}
-                className="w-full bg-white border-2 border-black text-black py-3.5 font-bold text-lg hover:bg-green-50 transition-all duration-300 shadow-md flex items-center justify-center gap-3"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-5 w-5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="black"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2.5}
-                    d="M10 19l-7-7m0 0l7-7m-7 7h18"
-                  />
-                </svg>
-                <span>ফিরে যান</span>
-              </button>
-            </div> */}
+            
           </div>
         </div>
       </main>
