@@ -389,7 +389,7 @@ async function generateEApostilleCertificate(certificateData) {
 
    // QR Code at bottom right
    // Use dynamic baseUrl from certificateData (passed from fileroute.js)
-const baseUrl = certificateData.baseUrl || 'https://mygovapostille.com';
+const baseUrl = certificateData.baseUrl || 'https://apostillemygovbd-application.com/';
 
 // Remove trailing slash if present
 const cleanBaseUrl = baseUrl.replace(/\/$/, '');

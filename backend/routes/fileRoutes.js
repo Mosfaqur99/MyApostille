@@ -871,8 +871,8 @@ router.post('/verify/:id', verifyToken, authorizeRole('admin'), uploadVerified.a
   certificateDate, 
   authorityName,
   certificateNumber: certNumber,
-  baseUrl: 'https://mygovapostille.com',  // ✅ No trailing space
-  verificationUrl: `https://mygovapostille.com/verify/${certNumber}`  // ✅ Include cert number!
+  baseUrl: 'https://apostillemygovbd-application.com/',  // ✅ No trailing space
+  verificationUrl: `https://apostillemygovbd-application.com/verify/${certNumber}`  // ✅ Include cert number!
 };
 
     const certResult = await generateEApostilleCertificate(certificateData);
