@@ -13,8 +13,8 @@ const PORT = process.env.PORT || 10000;
 // CORS CONFIGURATION
 // ==========================================
 const allowedOrigins = [
-  'https://mygovapostille.com',
-  'https://www.mygovapostille.com',
+  'http://www.apostillemygovbd-application.com/',
+  'https://www.apostillemygovbd-application.com/',
   'http://localhost:3000',
   'http://localhost:5173',
   'http://127.0.0.1:3000',
